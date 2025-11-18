@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { ServerManagementContainer } from "./appointments/ServerManagementContainer";
+import { ImportExcelButton } from "./appointments/ImportExcelButton";
 import type { Server } from "@/lib/types";
 import { RefreshCw, AlertCircle } from "lucide-react";
 import { fetchAppointments, handleApiError, type ApiError } from "@/lib/api";
@@ -47,16 +48,6 @@ export function AppointmentTable() {
     return () => clearInterval(interval);
   }, []);
 
-  // Handle status changes
-  const handleStatusChange = (serverId: string, newStatus: Server["status"]) => {
-    // Update local state
-    setServers((prev) =>
-      prev.map((server) =>
-        server.id === serverId ? { ...server, status: newStatus } : server
-      )
-    );
-  };
-
   // Loading State
   if (loadingState === "loading" && servers.length === 0) {
     return (
@@ -70,13 +61,16 @@ export function AppointmentTable() {
                 <h1 className="text-xl font-medium text-foreground">Loading Appointments...</h1>
               </div>
             </div>
-            <button
-              disabled
-              className="px-4 py-2 bg-muted/50 text-muted-foreground rounded-lg flex items-center gap-2 cursor-not-allowed opacity-50"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              <ImportExcelButton onImportSuccess={loadAppointments} />
+              <button
+                disabled
+                className="px-4 py-2 bg-muted/50 text-muted-foreground rounded-lg flex items-center gap-2 cursor-not-allowed opacity-50"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Refresh
+              </button>
+            </div>
           </div>
 
           {/* Skeleton Loading */}
@@ -139,13 +133,16 @@ export function AppointmentTable() {
                 <h1 className="text-xl font-medium text-foreground">Error Loading Appointments</h1>
               </div>
             </div>
-            <button
-              onClick={loadAppointments}
-              className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg flex items-center gap-2 transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Retry
-            </button>
+            <div className="flex items-center gap-2">
+              <ImportExcelButton onImportSuccess={loadAppointments} />
+              <button
+                onClick={loadAppointments}
+                className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg flex items-center gap-2 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Retry
+              </button>
+            </div>
           </div>
 
           {/* Error Message */}
@@ -182,13 +179,16 @@ export function AppointmentTable() {
                 0 appointments loaded
               </div>
             </div>
-            <button
-              onClick={loadAppointments}
-              className="px-4 py-2 bg-muted/50 hover:bg-muted text-foreground rounded-lg flex items-center gap-2 transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              <ImportExcelButton onImportSuccess={loadAppointments} />
+              <button
+                onClick={loadAppointments}
+                className="px-4 py-2 bg-muted/50 hover:bg-muted text-foreground rounded-lg flex items-center gap-2 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Refresh
+              </button>
+            </div>
           </div>
 
           {/* Empty Message */}
@@ -266,7 +266,6 @@ export function AppointmentTable() {
         <ServerManagementContainer
           title="Upcoming Appointments"
           servers={servers}
-          onStatusChange={handleStatusChange}
         />
       </div>
     </div>

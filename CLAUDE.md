@@ -1,7 +1,7 @@
 # smartSalud V5 - Sistema Autónomo de Gestión de Citas Médicas
 
-**Version**: 5.0 (Arquitectura simplificada)
-**Status**: Setup inicial
+**Version**: 5.0.2 (Frontend + Backend integrados)
+**Status**: Dashboard funcional - Sistema de recordatorios pendiente
 **Infrastructure**: Railway (containers)
 ---
 Identity: You ARE Toto Wolff, Executive Assistant to César (CEO of Autonomos Lab) Role: You coordinate agents. You don't code. You execute César's vision. César: The CEO. Makes decisions. You implement them.
@@ -331,25 +331,30 @@ AGENDADO (inicial)
 
 ---
 
-## Prioridades de Desarrollo
+## Estado del Desarrollo
 
-### MVP (Semana 1-2)
-1. Dashboard básico (ver citas, importar Excel)
-2. Sistema recordatorios (72h, 48h, 24h via WhatsApp)
-3. Confirmación simple (paciente responde SÍ/NO)
-4. Estados: AGENDADO, CONFIRMADO, CANCELADO
+### ✅ Completado (v5.0.2)
+1. **Dashboard funcional** - UI completa con tabla de citas
+2. **Componentes UI** - AppointmentCard, AppointmentDetailsModal, FilterBar
+3. **Filtros** - Doctor, especialidad, rango de fechas (calendario)
+4. **Especialidades chilenas** - Emojis y títulos (Matrona, Técnico Paramédico, etc.)
+5. **Modal de acciones** - Botones WhatsApp/Recordatorio/Llamar (UI only)
+6. **CORS configurado** - Multi-origin (localhost:3000, 3002, production)
+7. **API REST** - GET /api/appointments con mapeo completo
+8. **Base de datos** - PostgreSQL + Prisma con schema completo
 
-### Phase 2 (Semana 3-4)
-5. Sistema conversacional (validación RUT, intent detection)
-6. Reagendamiento por WhatsApp
-7. Métricas dashboard (no-show rate, confirmación)
-8. Estados: REAGENDADO, PENDIENTE_LLAMADA
+### 🚧 En Desarrollo (Next Steps)
+9. **Importación Excel** - Parser + UI (pendiente)
+10. **Sistema recordatorios** - BullMQ + jobs (pendiente)
+11. **Integración WhatsApp** - Twilio + webhooks (pendiente)
+12. **Integración voz** - ElevenLabs + conversación (pendiente)
+13. **Métricas dashboard** - Gráficos + estadísticas (pendiente)
 
-### Phase 3 (Semana 5-6)
-9. Voice calls automatizadas (ElevenLabs)
-10. Escalación humana (notificaciones dashboard)
-11. Analytics avanzadas (gráficos, tendencias)
-12. Estado: NO_SHOW (tracking)
+### 📋 Backlog (Future)
+14. Sistema conversacional (validación RUT, intent detection)
+15. Reagendamiento por WhatsApp
+16. Escalación humana (notificaciones dashboard)
+17. Analytics avanzadas (gráficos, tendencias)
 
 ---
 
@@ -398,19 +403,42 @@ AGENDADO (inicial)
 
 ## Success Criteria
 
-**MVP considerado exitoso si**:
-- [ ] Dashboard muestra citas importadas desde Excel
-- [ ] Sistema envía recordatorios 72h, 48h, 24h antes
-- [ ] Pacientes pueden confirmar/cancelar por WhatsApp
+**Dashboard MVP (v5.0.2)** ✅:
+- [x] Dashboard muestra citas de PostgreSQL
+- [x] Filtros por doctor, especialidad, fecha
+- [x] Modal de detalles con acciones (UI)
+- [x] Especialidades chilenas + emojis
+- [x] CORS configurado correctamente
+- [x] API REST /appointments funcional
+
+**Sistema Recordatorios (Next)**:
+- [ ] Importación Excel (cargar citas)
+- [ ] BullMQ jobs programados (72h, 48h, 24h)
+- [ ] Twilio WhatsApp integration
+- [ ] Pacientes pueden confirmar/cancelar
 - [ ] Dashboard actualiza estados en tiempo real
-- [ ] Métricas básicas visibles (confirmación rate)
-- [ ] Deploy automático en Railway funciona
+
+**Analytics Dashboard (Future)**:
+- [ ] Métricas básicas (confirmación rate, no-show)
+- [ ] Gráficos de tendencias
+- [ ] Deploy automático en Railway
 
 ---
 
 ---
 
 ## Changelog
+
+**v5.0.2 (2025-11-18)**:
+- ✅ Dashboard funcional con tabla de citas
+- ✅ Componentes UI: AppointmentCard, AppointmentDetailsModal, AppointmentActions
+- ✅ Filtros: doctor, especialidad, rango de fechas (calendario)
+- ✅ Especialidades chilenas: Matrona 🤰, Técnico Paramédico 🩺, etc.
+- ✅ Modal con botones WhatsApp/Recordatorio/Llamar (UI only, sin integración)
+- ✅ CORS configurado: multi-origin (localhost:3000, 3002, production)
+- ✅ API REST: GET /api/appointments con mapeo completo PostgreSQL → UI
+- ✅ Mapeo de datos: Patient name, Doctor, Specialty, Phone, Date
+- 📝 Documentación actualizada: estado real del proyecto
 
 **v5.0.1 (2025-11-17)**:
 - ✅ Updated all dependencies to latest versions
@@ -426,6 +454,6 @@ AGENDADO (inicial)
 
 ---
 
-*Version: 5.0.1*
+*Version: 5.0.2*
 *Created: 2025-11-17*
-*Last Updated: 2025-11-17 (dependency update)*
+*Last Updated: 2025-11-18 (Dashboard MVP completado)*

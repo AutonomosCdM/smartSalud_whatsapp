@@ -1,13 +1,13 @@
 /**
- * AppointmentActions Component - SMS and Voice action buttons
- * Provides UI for sending SMS reminders and ElevenLabs voice conversation
+ * AppointmentActions Component - WhatsApp and Voice action buttons
+ * Provides UI for sending WhatsApp reminders and voice calls
  */
 
 "use client";
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Send, Phone, Loader2, X } from "lucide-react";
+import { MessageCircle, Phone, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import type { Server } from "@/lib/types";
 import {
@@ -120,28 +120,49 @@ export function AppointmentActions({
   return (
     <>
       <div className="flex gap-2">
-        {/* Send SMS Button */}
+        {/* WhatsApp Button */}
         <motion.button
           onClick={handleSendSMS}
           disabled={isSendingSMS || isSendingVoice || !appointment.ip}
-          className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 disabled:bg-blue-500/5 disabled:cursor-not-allowed text-blue-400 disabled:text-blue-400/50 border border-blue-500/30 rounded-lg text-sm transition-colors"
+          className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 hover:bg-green-500/20 disabled:bg-green-500/5 disabled:cursor-not-allowed text-green-400 disabled:text-green-400/50 border border-green-500/30 rounded-lg text-sm transition-colors"
           whileHover={!isSendingSMS && !isSendingVoice ? { scale: 1.02 } : {}}
           whileTap={!isSendingSMS && !isSendingVoice ? { scale: 0.98 } : {}}
           title={
             !appointment.ip
-              ? "Phone number not available"
-              : "Send SMS reminder to patient"
+              ? "Teléfono no disponible"
+              : "Enviar mensaje WhatsApp al paciente"
           }
         >
           {isSendingSMS ? (
             <Loader2 className="w-3 h-3 animate-spin" />
           ) : (
-            <Send className="w-3 h-3" />
+            <MessageCircle className="w-3 h-3" />
           )}
-          {isSendingSMS ? "Sending..." : "Send SMS"}
+          {isSendingSMS ? "Enviando..." : "WhatsApp"}
         </motion.button>
 
-        {/* Voice Conversation Button - ElevenLabs */}
+        {/* Voice Reminder Button */}
+        <motion.button
+          onClick={handleSendVoice}
+          disabled={isSendingVoice || isSendingSMS || !appointment.ip}
+          className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 disabled:bg-blue-500/5 disabled:cursor-not-allowed text-blue-400 disabled:text-blue-400/50 border border-blue-500/30 rounded-lg text-sm transition-colors"
+          whileHover={!isSendingSMS && !isSendingVoice ? { scale: 1.02 } : {}}
+          whileTap={!isSendingSMS && !isSendingVoice ? { scale: 0.98 } : {}}
+          title={
+            !appointment.ip
+              ? "Teléfono no disponible"
+              : "Enviar recordatorio de voz WhatsApp"
+          }
+        >
+          {isSendingVoice ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <Phone className="w-3 h-3" />
+          )}
+          {isSendingVoice ? "Llamando..." : "Recordatorio"}
+        </motion.button>
+
+        {/* Human Call Button */}
         <motion.button
           onClick={() => setShowConversation(true)}
           disabled={!appointment.ip}
@@ -150,33 +171,12 @@ export function AppointmentActions({
           whileTap={!isSendingSMS && !isSendingVoice ? { scale: 0.98 } : {}}
           title={
             !appointment.ip
-              ? "Phone number not available"
-              : "Open voice conversation with ElevenLabs"
+              ? "Teléfono no disponible"
+              : "Llamada humana al paciente"
           }
         >
           <Phone className="w-3 h-3" />
-          Conversa
-        </motion.button>
-
-        {/* Send Voice Reminder Button */}
-        <motion.button
-          onClick={handleSendVoice}
-          disabled={isSendingVoice || isSendingSMS || !appointment.ip}
-          className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 hover:bg-green-500/20 disabled:bg-green-500/5 disabled:cursor-not-allowed text-green-400 disabled:text-green-400/50 border border-green-500/30 rounded-lg text-sm transition-colors"
-          whileHover={!isSendingSMS && !isSendingVoice ? { scale: 1.02 } : {}}
-          whileTap={!isSendingSMS && !isSendingVoice ? { scale: 0.98 } : {}}
-          title={
-            !appointment.ip
-              ? "Phone number not available"
-              : "Send voice reminder to patient"
-          }
-        >
-          {isSendingVoice ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
-          ) : (
-            <Phone className="w-3 h-3" />
-          )}
-          {isSendingVoice ? "Calling..." : "Recordatorio"}
+          Llamar
         </motion.button>
       </div>
 

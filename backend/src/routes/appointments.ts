@@ -1,12 +1,33 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
+import multer from 'multer';
 import { rutSchema } from '../utils/validation';
 import { scheduleReminders } from '../jobs/reminderScheduler';
 import { transformAppointments } from '../utils/appointmentMapper';
+import { parseExcelFile } from '../utils/excelParser';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+// Configure multer for memory storage (Excel files are small)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB max
+  },
+  fileFilter: (_req, file, cb) => {
+    // Only accept .xlsx files (check both mimetype and extension for robustness)
+    const isValidMimetype = file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const isValidExtension = file.originalname.toLowerCase().endsWith('.xlsx');
+
+    if (isValidMimetype || isValidExtension) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only .xlsx files are allowed'));
+    }
+  },
+});
 
 // POST /api/appointments
 router.post('/', async (req, res, next) => {
@@ -184,6 +205,135 @@ router.patch('/:id', async (req, res, next) => {
 
     res.json(updated);
   } catch (error) {
+    return next(error);
+  }
+});
+
+// POST /api/appointments/import - Import appointments from Excel
+router.post('/import', upload.single('file'), async (req, res, next) => {
+  try {
+    // Check file exists
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Parse Excel file
+    let parseResults;
+    try {
+      parseResults = parseExcelFile(req.file.buffer);
+    } catch (error) {
+      return res.status(400).json({
+        error: error instanceof Error ? error.message : 'Failed to parse Excel file'
+      });
+    }
+
+    // Process successful rows
+    const importedAppointments = [];
+    const failedRows = [];
+
+    for (const result of parseResults) {
+      if (!result.success || !result.data) {
+        failedRows.push({ row: result.row, error: result.error });
+        continue;
+      }
+
+      try {
+        const data = result.data;
+
+        // Find or create patient
+        let patient = await prisma.patient.findUnique({
+          where: { rut: data.rut },
+        });
+
+        if (!patient) {
+          patient = await prisma.patient.create({
+            data: {
+              rut: data.rut,
+              name: data.name,
+              phone: data.phone,
+              email: data.email,
+            },
+          });
+        } else {
+          // Update patient if data changed
+          patient = await prisma.patient.update({
+            where: { rut: data.rut },
+            data: {
+              name: data.name,
+              phone: data.phone,
+              email: data.email,
+            },
+          });
+        }
+
+        // Check for duplicate appointment (same patient + same date within 1 hour)
+        const existingAppointment = await prisma.appointment.findFirst({
+          where: {
+            patientId: patient.id,
+            appointmentDate: {
+              gte: new Date(data.appointmentDate.getTime() - 3600000), // -1 hour
+              lte: new Date(data.appointmentDate.getTime() + 3600000), // +1 hour
+            },
+          },
+        });
+
+        let appointment;
+
+        if (existingAppointment) {
+          // Update existing appointment
+          appointment = await prisma.appointment.update({
+            where: { id: existingAppointment.id },
+            data: {
+              appointmentDate: data.appointmentDate,
+              specialty: data.specialty,
+              doctorName: data.doctorName,
+              status: 'AGENDADO', // Reset status
+              statusUpdatedAt: new Date(),
+            },
+            include: { patient: true },
+          });
+        } else {
+          // Create new appointment
+          appointment = await prisma.appointment.create({
+            data: {
+              patientId: patient.id,
+              appointmentDate: data.appointmentDate,
+              specialty: data.specialty,
+              doctorName: data.doctorName,
+              status: 'AGENDADO',
+            },
+            include: { patient: true },
+          });
+
+          // Schedule reminders (async, don't wait)
+          scheduleReminders(appointment.id, data.appointmentDate).catch(console.error);
+        }
+
+        importedAppointments.push(appointment);
+
+      } catch (error) {
+        console.error(`[Import] Failed to import row ${result.row}:`, error);
+        failedRows.push({
+          row: result.row,
+          error: error instanceof Error ? error.message : 'Database error',
+        });
+      }
+    }
+
+    // Return summary
+    const summary = {
+      total: parseResults.length,
+      imported: importedAppointments.length,
+      failed: failedRows.length,
+      errors: failedRows,
+    };
+
+    res.status(200).json(summary);
+
+  } catch (error) {
+    if (error instanceof multer.MulterError) {
+      return res.status(400).json({ error: error.message });
+    }
     return next(error);
   }
 });

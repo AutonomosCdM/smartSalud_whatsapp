@@ -50,26 +50,37 @@ export type AppointmentWithPatient = Appointment & {
 
 /**
  * Specialty to OS Type mapping (icons)
+ * Real hospital specialties from CESFAM data
  */
 const SPECIALTY_ICON_MAP: Record<string, OSType> = {
+  // General medicine - 🩺 (windows)
+  'medicina general': 'windows',
+  'tecnico paramedico': 'windows',
+  'enfermera': 'windows',
+  'morbilidad': 'windows',
   'cardiología': 'windows',
   'cardiologia': 'windows',
-  'morbilidad': 'windows',
 
-  'dermatología': 'ubuntu',
-  'dermatologia': 'ubuntu',
-  'urología': 'ubuntu',
-  'urologia': 'ubuntu',
+  // Mental/Maternal health - 🧠 (ubuntu)
+  'matrona': 'ubuntu',
+  'psicologia': 'ubuntu',
   'salud mental': 'ubuntu',
   'salud_mental': 'ubuntu',
+  'odontologia': 'ubuntu',
+  'odontologia indiferenciado': 'ubuntu',
+  'terapeuta': 'ubuntu',
+  'dermatología': 'ubuntu',
+  'dermatologia': 'ubuntu',
 
-  'oftalmología': 'linux',
-  'oftalmologia': 'linux',
-  'neurología': 'linux',
-  'neurologia': 'linux',
+  // Chronic/Specialty care - 💊 (linux)
+  'kinesiologia': 'linux',
+  'nutricionista': 'linux',
+  'podologia': 'linux',
   'control crónico': 'linux',
   'control_cronico': 'linux',
   'recetas': 'linux',
+  'oftalmología': 'linux',
+  'oftalmologia': 'linux',
 };
 
 /**
@@ -179,6 +190,20 @@ function getProfessionalTitle(
   const normalized = specialty.toLowerCase().trim();
 
   const titles: Record<string, { male: string; female: string }> = {
+    // Real CESFAM specialties (non-medical professionals)
+    'matrona': { male: 'Matrona', female: 'Matrona' },
+    'enfermera': { male: 'Enfermero', female: 'Enfermera' },
+    'kinesiologia': { male: 'Kinesiólogo', female: 'Kinesióloga' },
+    'nutricionista': { male: 'Nutricionista', female: 'Nutricionista' },
+    'odontologia': { male: 'Odontólogo', female: 'Odontóloga' },
+    'odontologia indiferenciado': { male: 'Odontólogo', female: 'Odontóloga' },
+    'psicologia': { male: 'Psicólogo', female: 'Psicóloga' },
+    'podologia': { male: 'Podólogo', female: 'Podóloga' },
+    'tecnico paramedico': { male: 'Técnico Paramédico', female: 'Técnica Paramédica' },
+    'terapeuta': { male: 'Terapeuta', female: 'Terapeuta' },
+
+    // Medical specialties
+    'medicina general': { male: 'Médico General', female: 'Médica General' },
     'cardiología': { male: 'Cardiólogo', female: 'Cardióloga' },
     'cardiologia': { male: 'Cardiólogo', female: 'Cardióloga' },
     'dermatología': { male: 'Dermatólogo', female: 'Dermatóloga' },
@@ -203,18 +228,16 @@ function getProfessionalTitle(
 }
 
 /**
- * Format appointment date to v4 format
- * Example: "Jul 31, 2024, 14:30"
+ * Format appointment date to Chilean format
+ * Example: "19/11 07:00" (DD/MM HH:mm in 24h)
  */
 function formatAppointmentDate(appointmentDate: Date): string {
-  return appointmentDate.toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  const day = String(appointmentDate.getDate()).padStart(2, '0');
+  const month = String(appointmentDate.getMonth() + 1).padStart(2, '0');
+  const hours = String(appointmentDate.getHours()).padStart(2, '0');
+  const minutes = String(appointmentDate.getMinutes()).padStart(2, '0');
+
+  return `${day}/${month} ${hours}:${minutes}`;
 }
 
 /**
@@ -231,7 +254,7 @@ export function transformAppointment(
     number: String(index + 1).padStart(2, '0'),
     // serviceName = Patient name
     serviceName: appointment.patient.name,
-    // serviceNameSubtitle = Specialty
+    // serviceNameSubtitle = Specialty (for filtering, NOT displayed under patient name)
     serviceNameSubtitle: appointment.specialty || undefined,
     // osType = Specialty icon
     osType: getSpecialtyIcon(appointment.specialty),
@@ -243,7 +266,7 @@ export function transformAppointment(
     countryCode: getGenderCountryCode(appointment.doctorName),
     // ip = Patient phone number
     ip: appointment.patient.phone,
-    // dueDate = Appointment date/time formatted
+    // dueDate = Appointment date/time formatted (DD/MM HH:mm)
     dueDate: formatAppointmentDate(appointment.appointmentDate),
     // cpuPercentage = Workflow progress (0-100%)
     cpuPercentage: calculateProgress(appointment.status, appointment.workflowData),

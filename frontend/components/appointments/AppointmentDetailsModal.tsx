@@ -6,41 +6,63 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Power, Pause, Play, RotateCcw } from "lucide-react";
+import { X } from "lucide-react";
 import type { Server } from "@/lib/types";
 import { StatusIndicator } from "@/components/ui/StatusIndicator";
-import { WorkflowProgress } from "@/components/ui/WorkflowProgress";
 import { AppointmentActions } from "./AppointmentActions";
 
 interface AppointmentDetailsModalProps {
   appointment: Server | null;
   isOpen: boolean;
   onClose: () => void;
-  onStatusChange?: (id: string, newStatus: Server["status"]) => void;
 }
 
 /**
  * Appointment Details Modal Component
  * Displays detailed appointment information in overlay
- * Includes action buttons for status management (Start/Stop/Pause/Resume/Restart)
+ * Includes action buttons for WhatsApp, voice reminders, and human calls
  */
 export function AppointmentDetailsModal({
   appointment,
   isOpen,
   onClose,
-  onStatusChange,
 }: AppointmentDetailsModalProps) {
   if (!appointment) return null;
 
-  // Specialty emoji mapping
-  const getSpecialtyEmoji = (osType: Server["osType"]) => {
+  // Specialty emoji mapping - Real CESFAM specialties
+  const getSpecialtyEmoji = (osType: Server["osType"], specialty?: string) => {
+    // Direct specialty emoji mapping
+    const specialtyEmojis: Record<string, string> = {
+      // Real hospital specialties
+      "matrona": "🤰",
+      "enfermera": "💉",
+      "kinesiologia": "🦴",
+      "nutricionista": "🥗",
+      "odontologia": "🦷",
+      "odontologia indiferenciado": "🦷",
+      "psicologia": "🧠",
+      "tecnico paramedico": "🩺",
+      "terapeuta": "🧘",
+      "podologia": "🦶",
+      "medicina general": "🩺",
+    };
+
+    // Try specialty name first
+    if (specialty) {
+      const normalized = specialty.toLowerCase().trim();
+      if (specialtyEmojis[normalized]) {
+        return <span className="text-xl">{specialtyEmojis[normalized]}</span>;
+      }
+    }
+
+    // Fallback to osType mapping
     switch (osType) {
       case "windows":
-        return <span className="text-xl">❤️</span>;
+        return <span className="text-xl">🩺</span>;
       case "ubuntu":
-        return <span className="text-xl">🔴</span>;
+        return <span className="text-xl">🧠</span>;
       case "linux":
-        return <span className="text-xl">👁️</span>;
+        return <span className="text-xl">💊</span>;
     }
   };
 
@@ -55,12 +77,6 @@ export function AppointmentDetailsModal({
         return <span className="text-xl">👨‍⚕️</span>;
       case "fr":
         return <span className="text-xl">👩‍⚕️</span>;
-    }
-  };
-
-  const handleStatusChange = (newStatus: Server["status"]) => {
-    if (onStatusChange) {
-      onStatusChange(appointment.id, newStatus);
     }
   };
 
@@ -88,17 +104,13 @@ export function AppointmentDetailsModal({
               <div className="text-2xl font-bold text-muted-foreground">
                 {appointment.number}
               </div>
-              {getSpecialtyEmoji(appointment.osType)}
+              {getSpecialtyEmoji(appointment.osType, appointment.serviceNameSubtitle)}
               <div>
                 <h3 className="text-lg font-bold text-foreground">
                   {appointment.serviceName}
                 </h3>
-                {appointment.serviceNameSubtitle && (
-                  <p className="text-sm text-muted-foreground mb-2">
-                    {appointment.serviceNameSubtitle}
-                  </p>
-                )}
-                <div className="flex items-center gap-2">
+                {/* serviceNameSubtitle = specialty (for filtering only, not displayed) */}
+                <div className="flex items-center gap-2 mt-1">
                   <div className="w-5 h-5 flex items-center justify-center">
                     {getDoctorGenderEmoji(appointment.countryCode)}
                   </div>
@@ -116,68 +128,8 @@ export function AppointmentDetailsModal({
 
             {/* Action Buttons in Header */}
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Appointment Actions - SMS and Voice */}
+              {/* Appointment Actions - WhatsApp, Recordatorio, Llamar */}
               <AppointmentActions appointment={appointment} />
-
-              {/* Start/Stop */}
-              {appointment.status === "active" ? (
-                <motion.button
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-sm transition-colors"
-                  onClick={() => handleStatusChange("inactive")}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <Power className="w-3 h-3" />
-                  Stop
-                </motion.button>
-              ) : (
-                <motion.button
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30 rounded-lg text-sm transition-colors"
-                  onClick={() => handleStatusChange("active")}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <Play className="w-3 h-3" />
-                  Start
-                </motion.button>
-              )}
-
-              {/* Pause/Resume */}
-              {appointment.status === "paused" ? (
-                <motion.button
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg text-sm transition-colors"
-                  onClick={() => handleStatusChange("active")}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <Play className="w-3 h-3" />
-                  Resume
-                </motion.button>
-              ) : (
-                <motion.button
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-lg text-sm transition-colors"
-                  onClick={() => handleStatusChange("paused")}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <Pause className="w-3 h-3" />
-                  Pause
-                </motion.button>
-              )}
-
-              {/* Restart */}
-              <motion.button
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-lg text-sm transition-colors"
-                onClick={() => {
-                  handleStatusChange("inactive");
-                  setTimeout(() => handleStatusChange("active"), 1000);
-                }}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <RotateCcw className="w-3 h-3" />
-                Restart
-              </motion.button>
 
               {/* Close Button */}
               <motion.button
@@ -198,7 +150,7 @@ export function AppointmentDetailsModal({
               {/* Patient Phone */}
               <div className="bg-muted/40 rounded-lg p-3 border border-border/30">
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Patient Phone
+                  Teléfono Paciente
                 </label>
                 <div className="text-sm font-mono font-medium mt-1">
                   {appointment.ip}
@@ -208,7 +160,7 @@ export function AppointmentDetailsModal({
               {/* Appointment Date */}
               <div className="bg-muted/40 rounded-lg p-3 border border-border/30">
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Appointment Date
+                  Fecha Cita
                 </label>
                 <div className="text-sm font-medium mt-1">
                   {appointment.dueDate}
@@ -218,7 +170,7 @@ export function AppointmentDetailsModal({
               {/* Status */}
               <div className="bg-muted/40 rounded-lg p-3 border border-border/30">
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Status
+                  Estado
                 </label>
                 <div className="mt-1">
                   <StatusIndicator status={appointment.status} variant="pill" />
@@ -226,34 +178,23 @@ export function AppointmentDetailsModal({
               </div>
             </div>
 
-            {/* Workflow Progress */}
-            <div className="bg-muted/40 rounded-lg p-3 border border-border/30">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
-                Workflow Progress
-              </label>
-              <WorkflowProgress
-                percentage={appointment.cpuPercentage}
-                status={appointment.status}
-              />
-            </div>
-
             {/* Recent Activity Log */}
             <div className="bg-muted/40 rounded-lg p-3 border border-border/30">
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
-                Recent Activity
+                Actividad Reciente
               </label>
               <div className="font-mono text-xs space-y-1 max-h-24 overflow-y-auto">
                 <div className="text-green-400">
-                  [15:42:31] Appointment confirmed
+                  [15:42:31] Cita confirmada
                 </div>
                 <div className="text-blue-400">
-                  [15:42:25] Patient reminder sent
+                  [15:42:25] Recordatorio enviado al paciente
                 </div>
                 <div className="text-yellow-400">
-                  [15:41:18] Workflow progress: {appointment.cpuPercentage}%
+                  [15:41:18] Progreso: {appointment.cpuPercentage}%
                 </div>
                 <div className="text-muted-foreground">
-                  [15:40:05] Contact from {appointment.ip}
+                  [15:40:05] Contacto desde {appointment.ip}
                 </div>
               </div>
             </div>

@@ -14,11 +14,11 @@ import { TableHeader } from "./TableHeader";
 import { AppointmentCard } from "./AppointmentCard";
 import { AppointmentDetailsModal } from "./AppointmentDetailsModal";
 import { EmptyStateView } from "@/components/ui/EmptyStateView";
+import { FilterBar, type FilterConfig } from "./FilterBar";
 
 interface ServerManagementContainerProps {
   title?: string;
   servers?: Server[];
-  onStatusChange?: (serverId: string, newStatus: Server["status"]) => void;
   className?: string;
 }
 
@@ -35,7 +35,6 @@ interface ServerManagementContainerProps {
 export function ServerManagementContainer({
   title = "Active Services",
   servers: initialServers = [],
-  onStatusChange,
   className = "",
 }: ServerManagementContainerProps) {
   // State management - ALL state lives here
@@ -46,30 +45,57 @@ export function ServerManagementContainer({
     order: "asc",
   });
   const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
+  const [filters, setFilters] = useState<FilterConfig>({
+    doctor: null,
+    specialty: null,
+    dateFrom: null,
+    dateTo: null,
+  });
 
   // Sync internal state with prop changes
   useEffect(() => {
     setServers(initialServers);
   }, [initialServers]);
 
-  // Compute sorted and numbered appointments
-  const sortedServers = useMemo(() => {
-    const sorted = sortAppointments(servers, sortConfig);
-    return assignPersistentNumbers(sorted);
-  }, [servers, sortConfig]);
+  // Apply filters then sort
+  const filteredAndSortedServers = useMemo(() => {
+    // Step 1: Apply filters
+    let filtered = servers;
 
-  // Status change handler - propagates to parent and updates local state
-  const handleStatusChange = (serverId: string, newStatus: Server["status"]) => {
-    if (onStatusChange) {
-      onStatusChange(serverId, newStatus);
+    // Filter by doctor
+    if (filters.doctor) {
+      filtered = filtered.filter((s) => s.serviceLocation === filters.doctor);
     }
 
-    setServers((prev) =>
-      prev.map((server) =>
-        server.id === serverId ? { ...server, status: newStatus } : server
-      )
-    );
-  };
+    // Filter by specialty
+    if (filters.specialty) {
+      filtered = filtered.filter(
+        (s) => s.serviceNameSubtitle === filters.specialty
+      );
+    }
+
+    // Filter by date range
+    if (filters.dateFrom || filters.dateTo) {
+      filtered = filtered.filter((s) => {
+        // Extract date from dueDate format "DD/MM HH:mm"
+        const dateMatch = s.dueDate.match(/^(\d{2})\/(\d{2})/);
+        if (!dateMatch) return true;
+
+        const appointmentDate = `${dateMatch[1]}/${dateMatch[2]}`;
+
+        const fromOk = !filters.dateFrom || appointmentDate >= filters.dateFrom;
+        const toOk = !filters.dateTo || appointmentDate <= filters.dateTo;
+
+        return fromOk && toOk;
+      });
+    }
+
+    // Step 2: Sort
+    const sorted = sortAppointments(filtered, sortConfig);
+
+    // Step 3: Assign numbers
+    return assignPersistentNumbers(sorted);
+  }, [servers, sortConfig, filters]);
 
   // Details modal handlers
   const handleOpenDetails = (serverId: string) => {
@@ -138,11 +164,44 @@ export function ServerManagementContainer({
           </div>
         </div>
 
+        {/* Filter Bar */}
+        {servers.length > 0 && (
+          <FilterBar
+            servers={servers}
+            filters={filters}
+            onFilterChange={setFilters}
+          />
+        )}
+
         {/* Table or Empty State */}
         {servers.length === 0 ? (
           <EmptyStateView onRefresh={handleRefresh} />
+        ) : filteredAndSortedServers.length === 0 ? (
+          <div className="bg-muted/30 border border-border/30 rounded-xl p-16 text-center">
+            <div className="text-6xl mb-4">🔍</div>
+            <h2 className="text-2xl font-bold text-foreground mb-2">
+              No hay citas que coincidan
+            </h2>
+            <p className="text-muted-foreground mb-6">
+              Intenta ajustar los filtros para ver más resultados.
+            </p>
+            <button
+              onClick={() =>
+                setFilters({
+                  doctor: null,
+                  specialty: null,
+                  dateFrom: null,
+                  dateTo: null,
+                })
+              }
+              className="px-6 py-3 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg transition-colors font-medium"
+            >
+              Limpiar filtros
+            </button>
+          </div>
         ) : (
           <motion.div
+            key={`appointments-${filteredAndSortedServers.length}`}
             className="space-y-2"
             variants={{
               visible: {
@@ -162,8 +221,8 @@ export function ServerManagementContainer({
               onSortChange={handleSortChange}
             />
 
-            {/* Appointment Rows - using sorted and numbered appointments */}
-            {sortedServers.map((server) => (
+            {/* Appointment Rows - using filtered, sorted and numbered appointments */}
+            {filteredAndSortedServers.map((server) => (
               <AppointmentCard
                 key={server.id}
                 appointment={server}
@@ -180,7 +239,6 @@ export function ServerManagementContainer({
           appointment={selectedServer}
           isOpen={detailsOpen}
           onClose={handleCloseDetails}
-          onStatusChange={handleStatusChange}
         />
       </div>
     </div>

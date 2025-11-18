@@ -29,14 +29,28 @@ export function AppointmentCard({
   appointment,
   onDetailsClick,
 }: AppointmentCardProps) {
-  // Specialty emoji mapping (smartSalud v4)
+  // Specialty emoji mapping - Real CESFAM specialties
   const getSpecialtyEmoji = (osType: Server["osType"], specialty?: string) => {
     // Direct specialty emoji mapping
     const specialtyEmojis: Record<string, string> = {
-      morbilidad: "🩺",
-      salud_mental: "🧠",
-      control_cronico: "💊",
-      recetas: "📋",
+      // Real hospital specialties
+      "matrona": "🤰",
+      "enfermera": "💉",
+      "kinesiologia": "🦴",
+      "nutricionista": "🥗",
+      "odontologia": "🦷",
+      "odontologia indiferenciado": "🦷",
+      "psicologia": "🧠",
+      "tecnico paramedico": "🩺",
+      "terapeuta": "🧘",
+      "podologia": "🦶",
+      "medicina general": "🩺",
+
+      // Legacy v4 specialties
+      "morbilidad": "🩺",
+      "salud_mental": "🧠",
+      "control_cronico": "💊",
+      "recetas": "📋",
     };
 
     // Try specialty name first
@@ -47,14 +61,14 @@ export function AppointmentCard({
       }
     }
 
-    // Fallback to osType mapping
+    // Fallback to osType mapping (should rarely be used now)
     switch (osType) {
       case "windows":
-        return <span className="text-xl">🩺</span>; // morbilidad
+        return <span className="text-xl">🩺</span>; // general medicine
       case "ubuntu":
-        return <span className="text-xl">🧠</span>; // salud_mental
+        return <span className="text-xl">🧠</span>; // mental health
       case "linux":
-        return <span className="text-xl">💊</span>; // control_cronico
+        return <span className="text-xl">💊</span>; // chronic care
     }
   };
 
@@ -143,11 +157,7 @@ export function AppointmentCard({
               <span className="text-foreground font-medium">
                 {appointment.serviceName}
               </span>
-              {appointment.serviceNameSubtitle && (
-                <span className="text-xs text-muted-foreground">
-                  {appointment.serviceNameSubtitle}
-                </span>
-              )}
+              {/* serviceNameSubtitle contains specialty for filtering - don't display it here */}
             </div>
           </div>
 

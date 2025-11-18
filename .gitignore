@@ -45,3 +45,17 @@ prisma/.env
 # Temporary files
 tmp/
 temp/
+
+# Excel test files
+*.xls
+*.xlsx
+adjust_dates.js
+backend/adjust_dates.js
+backend/check_sample.js
+backend/create_sample.js
+backend/create_test_excel.js
+backend/create_valid_ruts.js
+
+# TypeScript build info
+frontend/tsconfig.tsbuildinfo
+backend/tsconfig.tsbuildinfo

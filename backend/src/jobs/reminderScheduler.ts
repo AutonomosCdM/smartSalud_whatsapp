@@ -4,13 +4,39 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-const connection = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
-  maxRetriesPerRequest: null,
-});
+// Optional Redis connection for MVP
+let connection: Redis | null = null;
+let reminderQueue: Queue | null = null;
+let redisEnabled = false;
 
-const reminderQueue = new Queue('reminders', { connection });
+try {
+  connection = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+    maxRetriesPerRequest: null,
+    lazyConnect: true, // Don't connect immediately
+    retryStrategy: () => null, // Don't retry on failure
+  });
+
+  // Test connection
+  connection.connect().then(() => {
+    reminderQueue = new Queue('reminders', { connection: connection! });
+    redisEnabled = true;
+    console.log('[ReminderScheduler] Redis connected - reminders enabled');
+  }).catch(() => {
+    console.warn('[ReminderScheduler] Redis not available - reminders disabled');
+    connection?.disconnect();
+    connection = null;
+  });
+} catch (error) {
+  console.warn('[ReminderScheduler] Redis initialization failed - reminders disabled');
+}
 
 export async function scheduleReminders(appointmentId: string, appointmentDate?: Date) {
+  // Skip if Redis not available (MVP mode)
+  if (!redisEnabled || !reminderQueue) {
+    console.log(`[ReminderScheduler] Skipping reminders for ${appointmentId} - Redis disabled`);
+    return;
+  }
+
   // If date not provided, fetch from DB
   let date = appointmentDate;
   if (!date) {
@@ -58,6 +84,12 @@ export async function scheduleReminders(appointmentId: string, appointmentDate?:
 }
 
 export async function cancelReminders(appointmentId: string) {
+  // Skip if Redis not available (MVP mode)
+  if (!redisEnabled || !reminderQueue) {
+    console.log(`[ReminderScheduler] Skipping cancel for ${appointmentId} - Redis disabled`);
+    return;
+  }
+
   await reminderQueue.remove(`${appointmentId}-72h`);
   await reminderQueue.remove(`${appointmentId}-48h`);
   await reminderQueue.remove(`${appointmentId}-24h`);

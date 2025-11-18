@@ -73,6 +73,10 @@ model Appointment {
   status          AppointmentStatus @default(AGENDADO)
   statusUpdatedAt DateTime          @default(now()) @map("status_updated_at") @db.Timestamptz
 
+  // Workflow tracking data (JSONB) - for v4 frontend compatibility
+  // Structure: { currentStep: string, progress: number, stepTimestamps: Record<string, DateTime> }
+  workflowData    Json?             @map("workflow_data")
+
   reminder72hSent    Boolean   @default(false) @map("reminder_72h_sent")
   reminder72hSentAt  DateTime? @map("reminder_72h_sent_at") @db.Timestamptz
   reminder48hSent    Boolean   @default(false) @map("reminder_48h_sent")

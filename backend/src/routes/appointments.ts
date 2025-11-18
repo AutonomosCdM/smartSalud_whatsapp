@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { rutSchema } from '../utils/validation';
 import { scheduleReminders } from '../jobs/reminderScheduler';
+import { transformAppointments } from '../utils/appointmentMapper';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -106,8 +107,11 @@ router.get('/', async (req, res, next) => {
 
     const total = await prisma.appointment.count({ where });
 
+    // Transform to v4 Server interface format
+    const transformedData = transformAppointments(appointments);
+
     res.json({
-      data: appointments,
+      data: transformedData,
       pagination: {
         page: pageNum,
         limit: limitNum,

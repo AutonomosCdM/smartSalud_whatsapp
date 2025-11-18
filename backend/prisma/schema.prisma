@@ -1,0 +1,181 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum AppointmentStatus {
+  AGENDADO
+  CONFIRMADO
+  REAGENDADO
+  CANCELADO
+  PENDIENTE_LLAMADA
+  NO_SHOW
+}
+
+enum ReminderType {
+  WHATSAPP_72H
+  WHATSAPP_48H
+  WHATSAPP_24H
+  VOICE_CALL
+  HUMAN_CALL
+}
+
+enum ConversationStep {
+  WAITING_RUT
+  AUTHENTICATED
+  INTENT_DETECTED
+  EXECUTING_ACTION
+  COMPLETED
+}
+
+// ============================================
+// CORE TABLES
+// ============================================
+
+model Patient {
+  id        String   @id @default(uuid())
+  rut       String   @unique @db.VarChar(12)
+  name      String   @db.VarChar(255)
+  phone     String   @db.VarChar(20)
+  email     String?  @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  appointments  Appointment[]
+  conversations Conversation[]
+
+  @@index([rut])
+  @@index([phone])
+  @@map("patients")
+}
+
+model Appointment {
+  id              String            @id @default(uuid())
+  patientId       String            @map("patient_id")
+  patient         Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  appointmentDate DateTime          @map("appointment_date") @db.Timestamptz
+  specialty       String?           @db.VarChar(100)
+  doctorName      String?           @map("doctor_name") @db.VarChar(255)
+  doctorGender    String?           @map("doctor_gender") @db.VarChar(10)
+
+  status          AppointmentStatus @default(AGENDADO)
+  statusUpdatedAt DateTime          @default(now()) @map("status_updated_at") @db.Timestamptz
+
+  reminder72hSent    Boolean   @default(false) @map("reminder_72h_sent")
+  reminder72hSentAt  DateTime? @map("reminder_72h_sent_at") @db.Timestamptz
+  reminder48hSent    Boolean   @default(false) @map("reminder_48h_sent")
+  reminder48hSentAt  DateTime? @map("reminder_48h_sent_at") @db.Timestamptz
+  reminder24hSent    Boolean   @default(false) @map("reminder_24h_sent")
+  reminder24hSentAt  DateTime? @map("reminder_24h_sent_at") @db.Timestamptz
+  voiceCallAttempted Boolean   @default(false) @map("voice_call_attempted")
+  voiceCallAttemptedAt DateTime? @map("voice_call_attempted_at") @db.Timestamptz
+  needsHumanCall   Boolean   @default(false) @map("needs_human_call")
+
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+  cancelledReason String?           @map("cancelled_reason") @db.Text
+
+  rescheduledFromId String?       @map("rescheduled_from")
+  rescheduledFrom   Appointment?  @relation("RescheduledAppointments", fields: [rescheduledFromId], references: [id])
+  rescheduledTo     Appointment[] @relation("RescheduledAppointments")
+
+  reminders      ReminderLog[]
+  stateChanges   AppointmentStateChange[]
+
+  @@index([appointmentDate])
+  @@index([status])
+  @@index([patientId])
+  @@index([reminder72hSent, reminder48hSent, reminder24hSent])
+  @@map("appointments")
+}
+
+model ReminderLog {
+  id               String       @id @default(uuid())
+  appointmentId    String       @map("appointment_id")
+  appointment      Appointment  @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  type             ReminderType
+  sentAt           DateTime     @default(now()) @map("sent_at") @db.Timestamptz
+  responseReceived Boolean      @default(false) @map("response_received")
+  responseText     String?      @map("response_text") @db.Text
+  responseAt       DateTime?    @map("response_at") @db.Timestamptz
+
+  @@unique([appointmentId, type], name: "unique_reminder_per_appointment")
+  @@index([appointmentId])
+  @@index([sentAt])
+  @@map("reminders_log")
+}
+
+model Conversation {
+  id              String           @id @default(uuid())
+  phone           String           @db.VarChar(20)
+  patientId       String?          @map("patient_id")
+  patient         Patient?         @relation(fields: [patientId], references: [id], onDelete: SetNull)
+
+  step            ConversationStep @default(WAITING_RUT)
+  currentIntent   String?          @map("current_intent") @db.VarChar(50)
+  conversationData Json?           @map("conversation_data")
+
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  lastMessageAt   DateTime         @default(now()) @map("last_message_at") @db.Timestamptz
+  completedAt     DateTime?        @map("completed_at") @db.Timestamptz
+
+  @@index([phone])
+  @@index([patientId])
+  @@index([step])
+  @@map("conversations")
+}
+
+model DailyMetric {
+  date                DateTime @id @db.Date
+
+  totalAppointments   Int      @default(0) @map("total_appointments")
+  totalConfirmed      Int      @default(0) @map("total_confirmed")
+  totalRescheduled    Int      @default(0) @map("total_rescheduled")
+  totalCancelled      Int      @default(0) @map("total_cancelled")
+  totalNoShow         Int      @default(0) @map("total_no_show")
+
+  confirmationRate    Decimal? @map("confirmation_rate") @db.Decimal(5, 2)
+  noShowRate          Decimal? @map("no_show_rate") @db.Decimal(5, 2)
+  cancellationRate    Decimal? @map("cancellation_rate") @db.Decimal(5, 2)
+
+  avgRemindersSent    Decimal? @map("avg_reminders_sent") @db.Decimal(5, 2)
+  voiceCallsMade      Int      @default(0) @map("voice_calls_made")
+  humanCallsNeeded    Int      @default(0) @map("human_calls_needed")
+
+  calculatedAt        DateTime @default(now()) @map("calculated_at") @db.Timestamptz
+
+  @@map("daily_metrics")
+}
+
+// ============================================
+// AUDIT TABLE
+// ============================================
+
+model AppointmentStateChange {
+  id            String            @id @default(uuid())
+  appointmentId String            @map("appointment_id")
+  appointment   Appointment       @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  fromStatus    AppointmentStatus? @map("from_status")
+  toStatus      AppointmentStatus  @map("to_status")
+  changedBy     String            @db.VarChar(50)
+  reason        String?           @db.Text
+  changedAt     DateTime          @default(now()) @map("changed_at") @db.Timestamptz
+
+  @@index([appointmentId])
+  @@index([changedAt])
+  @@map("appointment_state_changes")
+}

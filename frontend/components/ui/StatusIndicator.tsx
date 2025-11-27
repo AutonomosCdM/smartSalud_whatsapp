@@ -3,47 +3,63 @@
  * Displays color-coded status with appropriate styling
  */
 
-import type { DisplayStatus, AppointmentStatus } from "@/lib/types";
-
 interface StatusIndicatorProps {
-  status: DisplayStatus | AppointmentStatus;
+  status: string;
   variant?: "badge" | "pill";
 }
 
 /**
  * Status Badge Component
- * Maps ServerStatus to visual badge with appropriate color
+ * Maps real appointment status (Spanish) to visual badge with appropriate color
  *
- * active (green) = Confirmado - CONFIRMED or VOICE_CALL_ACTIVE
- * paused (yellow) = Reagendado - PENDING_CONFIRMATION, RESCHEDULED, NEEDS_HUMAN_INTERVENTION
- * inactive (red) = Cancelado - CANCELLED
+ * CONFIRMADO (green) = Confirmed appointment
+ * AGENDADO, REAGENDADO, PENDIENTE_LLAMADA, CONTACTAR (yellow) = Pending states
+ * CANCELADO, NO_SHOW (red) = Inactive states
  */
 export function StatusIndicator({ status, variant = "badge" }: StatusIndicatorProps) {
-  const getStatusConfig = (status: DisplayStatus | AppointmentStatus) => {
+  const getStatusConfig = (status: string) => {
     switch (status) {
-      case "active":
-      case "CONFIRMED":
-      case "VOICE_CALL_ACTIVE":
+      // Green - Confirmed
+      case "CONFIRMADO":
         return {
           label: "Confirmado",
           className: "text-green-400",
         };
-      case "paused":
-      case "PENDING_CONFIRMATION":
-      case "RESCHEDULED":
+      // Yellow - Pending states
+      case "AGENDADO":
         return {
-          label: "Reagendado",
+          label: "Agendado",
           className: "text-yellow-400",
         };
-      case "inactive":
-      case "CANCELLED":
+      case "REAGENDADO":
+        return {
+          label: "Reagendado",
+          className: "text-blue-400",
+        };
+      case "PENDIENTE_LLAMADA":
+        return {
+          label: "Pendiente",
+          className: "text-orange-400",
+        };
+      case "CONTACTAR":
+        return {
+          label: "Contactar",
+          className: "text-purple-400",
+        };
+      // Red - Inactive states
+      case "CANCELADO":
         return {
           label: "Cancelado",
           className: "text-red-400",
         };
+      case "NO_SHOW":
+        return {
+          label: "No Asistió",
+          className: "text-gray-400",
+        };
       default:
         return {
-          label: "Desconocido",
+          label: status || "Desconocido",
           className: "text-gray-400",
         };
     }

@@ -8,6 +8,7 @@
 import { motion } from "framer-motion";
 import type { Server } from "@/lib/types";
 import { StatusIndicator } from "@/components/ui/StatusIndicator";
+import { CallButton } from "@/components/ui/CallButton";
 // import { ConversationBar } from "@/components/ui/conversation-bar";
 
 interface AppointmentCardProps {
@@ -29,49 +30,6 @@ export function AppointmentCard({
   appointment,
   onDetailsClick,
 }: AppointmentCardProps) {
-  // Specialty emoji mapping - Real CESFAM specialties
-  const getSpecialtyEmoji = (osType: Server["osType"], specialty?: string) => {
-    // Direct specialty emoji mapping
-    const specialtyEmojis: Record<string, string> = {
-      // Real hospital specialties
-      "matrona": "🤰",
-      "enfermera": "💉",
-      "kinesiologia": "🦴",
-      "nutricionista": "🥗",
-      "odontologia": "🦷",
-      "odontologia indiferenciado": "🦷",
-      "psicologia": "🧠",
-      "tecnico paramedico": "🩺",
-      "terapeuta": "🧘",
-      "podologia": "🦶",
-      "medicina general": "🩺",
-
-      // Legacy v4 specialties
-      "morbilidad": "🩺",
-      "salud_mental": "🧠",
-      "control_cronico": "💊",
-      "recetas": "📋",
-    };
-
-    // Try specialty name first
-    if (specialty) {
-      const normalized = specialty.toLowerCase().trim();
-      if (specialtyEmojis[normalized]) {
-        return <span className="text-xl">{specialtyEmojis[normalized]}</span>;
-      }
-    }
-
-    // Fallback to osType mapping (should rarely be used now)
-    switch (osType) {
-      case "windows":
-        return <span className="text-xl">🩺</span>; // general medicine
-      case "ubuntu":
-        return <span className="text-xl">🧠</span>; // mental health
-      case "linux":
-        return <span className="text-xl">💊</span>; // chronic care
-    }
-  };
-
   // Doctor gender emoji mapping
   const getDoctorGenderEmoji = (countryCode: Server["countryCode"]) => {
     switch (countryCode) {
@@ -86,15 +44,22 @@ export function AppointmentCard({
     }
   };
 
-  // Status gradient overlay
-  const getStatusGradient = (status: Server["status"]) => {
+  // Status gradient overlay - based on real Spanish status values
+  const getStatusGradient = (status: string) => {
     switch (status) {
-      case "active":
+      case "CONFIRMADO":
         return "from-green-500/10 to-transparent";
-      case "paused":
+      case "AGENDADO":
+      case "PENDIENTE_LLAMADA":
+      case "CONTACTAR":
         return "from-yellow-500/10 to-transparent";
-      case "inactive":
+      case "REAGENDADO":
+        return "from-blue-500/10 to-transparent";
+      case "CANCELADO":
+      case "NO_SHOW":
         return "from-red-500/10 to-transparent";
+      default:
+        return "from-gray-500/10 to-transparent";
     }
   };
 
@@ -151,19 +116,16 @@ export function AppointmentCard({
             </span>
           </div>
 
-          {/* PACIENTE */}
-          <div className="col-span-2">
+          {/* PACIENTE - Now showing name + RUT */}
+          <div className="col-span-3">
             <div className="flex flex-col">
               <span className="text-foreground font-medium">
                 {appointment.serviceName}
               </span>
-              {/* serviceNameSubtitle contains specialty for filtering - don't display it here */}
+              <span className="text-xs text-muted-foreground">
+                {appointment.patientRut || 'RUT no disponible'}
+              </span>
             </div>
-          </div>
-
-          {/* ESPECIALIDAD (emoji only) */}
-          <div className="col-span-1 flex justify-center">
-            {getSpecialtyEmoji(appointment.osType, appointment.serviceNameSubtitle)}
           </div>
 
           {/* DOCTOR */}
@@ -190,14 +152,23 @@ export function AppointmentCard({
             </span>
           </div>
 
-          {/* HORA */}
-          <div className="col-span-3">
+          {/* CITA */}
+          <div className="col-span-2">
             <span className="text-foreground">{appointment.dueDate}</span>
           </div>
 
           {/* ESTADO */}
           <div className="col-span-1">
             <StatusIndicator status={appointment.status} />
+          </div>
+
+          {/* LLAMAR */}
+          <div className="col-span-1 flex justify-center">
+            <CallButton
+              phoneNumber={appointment.ip}
+              patientName={appointment.serviceName}
+              variant="icon"
+            />
           </div>
         </div>
       </motion.div>

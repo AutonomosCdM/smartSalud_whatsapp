@@ -1,7 +1,7 @@
-# Estado Actual del Proyecto (v5.0.2)
+# Estado Actual del Proyecto (v5.0.4)
 
-**Fecha**: 2025-11-18
-**Estado**: Dashboard MVP funcional - Recordatorios pendientes
+**Fecha**: 2025-11-27
+**Estado**: Dashboard MVP + Métricas + Sistema de Estados Mejorado
 
 ---
 
@@ -14,51 +14,49 @@
 - `GET /api/appointments` - Listar citas con filtros opcionales
   - Query params: `startDate`, `endDate`, `status`, `limit`, `offset`
   - Retorna: `{ total, data: Server[], page, limit }`
+- `PATCH /api/appointments/:id` - Actualizar estado de cita
+  - Body: `{ status: AppointmentStatus, appointmentDate?: ISO8601 }`
+  - Soporta reagendamiento con nueva fecha
 
 **Base de Datos** (PostgreSQL + Prisma):
-- ✅ Tablas: `patients`, `appointments`, `reminders_log`
+- ✅ Tablas: `patients`, `appointments`, `reminders_log`, `calls`
 - ✅ Schema completo con relaciones
-- ✅ Enums: `AppointmentStatus`, `ReminderType`
+- ✅ Enums: `AppointmentStatus` (AGENDADO, CONFIRMADO, REAGENDADO, CANCELADO, PENDIENTE_LLAMADA, NO_SHOW, CONTACTAR)
 
-**CORS**:
-- ✅ Multi-origin configurado
-- ✅ Acepta: `localhost:3000`, `localhost:3002`, `FRONTEND_URL`
-- ✅ Credentials habilitado
-
-**Data Mapping**:
+**Data Mapping** (v5.0.4):
 - ✅ `appointmentMapper.ts` - Transforma Prisma → v4 Server interface
 - ✅ Mapeo de especialidades chilenas (MATRONA, TÉCNICO PARAMÉDICO, etc.)
-- ✅ Emojis por especialidad (🤰, 🩺, 💉, 🦴, etc.)
-- ✅ Detección de género del doctor (👩‍⚕️, 👨‍⚕️)
-- ✅ Formato de fecha chileno (DD/MM HH:mm)
-
-**Servicios**:
-- ✅ ReminderScheduler (Redis connected - no jobs programados aún)
-- ✅ Prisma Client generado
+- ✅ **Real status vs displayStatus** - Separa estado real (AGENDADO) de estado visual (paused)
+- ✅ Formato de fecha con año (DD/MM/YYYY HH:mm)
 
 ---
 
 ### Frontend (Next.js 15 + React 19 + TypeScript)
 
-**Componentes UI**:
+**Componentes UI (v5.0.4)**:
 - ✅ `AppointmentTable.tsx` - Container principal
-- ✅ `AppointmentCard.tsx` - Fila de cita con emojis
-- ✅ `AppointmentDetailsModal.tsx` - Modal de detalles
+- ✅ `AppointmentCard.tsx` - Fila de cita con colores por estado real
+- ✅ `AppointmentDetailsModal.tsx` - Modal con calendario visual
 - ✅ `AppointmentActions.tsx` - Botones WhatsApp/Recordatorio/Llamar
 - ✅ `FilterBar.tsx` - Filtros (doctor, especialidad, fecha)
-- ✅ `MiniCalendar.tsx` - Date picker
-- ✅ `ServerManagementContainer.tsx` - Orchestrator
-- ✅ `TableHeader.tsx` - Header con sorting
-- ✅ `StatusIndicator.tsx` - Badge de estado
+- ✅ `StatusSelector.tsx` - Dropdown de estados con acciones (verbos)
+- ✅ `StatusIndicator.tsx` - Badge de estado real (español)
+- ✅ `Calendar.tsx` - **NUEVO** Calendario visual estilo OriginUI
 
-**Features**:
-- ✅ Fetch appointments desde API con retry logic
-- ✅ Filtros por doctor (dropdown)
-- ✅ Filtros por especialidad (dropdown)
-- ✅ Filtros por rango de fechas (calendario)
-- ✅ Sorting por columnas (fecha, paciente, doctor, estado)
-- ✅ Error handling + loading states
-- ✅ Empty states (sin citas, sin resultados de filtro)
+**Features (v5.0.4)**:
+- ✅ **Sistema de Estados Mejorado**:
+  - Estado actual muestra resultado: "Agendado", "Confirmado", "Reagendado"
+  - Dropdown muestra acciones: "Confirmar", "Reagendar", "Cancelar"
+  - Transiciones libres entre cualquier estado
+- ✅ **Calendario Visual para Reagendamiento**:
+  - Componente `Calendar` basado en react-day-picker v9
+  - Locale español (días: lu, ma, mi, ju, vi, sá, do)
+  - Fechas pasadas deshabilitadas
+  - Grid de horarios comunes (08:00 - 17:00)
+  - Input personalizado para hora
+  - Preview de nueva cita formateada
+- ✅ Eliminado campo "Progreso" del log de actividad
+- ✅ Colores por estado real (no displayStatus)
 
 **Especialidades Chilenas**:
 ```
@@ -74,81 +72,55 @@ PODOLOGIA 🦶
 MEDICINA GENERAL 🩺
 ```
 
-**Color System**:
-- Verde `text-green-400` = Confirmado (active)
-- Amarillo `text-yellow-400` = Reagendado/Pendiente (paused)
-- Rojo `text-red-400` = Cancelado/No-show (inactive)
+**Color System** (Estados Reales):
+- Verde `text-green-400` = CONFIRMADO
+- Amarillo `text-yellow-400` = AGENDADO, PENDIENTE_LLAMADA, CONTACTAR
+- Azul `text-blue-400` = REAGENDADO
+- Rojo `text-red-400` = CANCELADO, NO_SHOW
 
-**API Client** (`lib/api.ts`):
-- ✅ Base URL configurable: `NEXT_PUBLIC_API_URL`
-- ✅ Retry logic: 3 intentos con delay exponencial
-- ✅ Timeout: 10 segundos
-- ✅ Error handling tipado: `ApiError`, `ApiNetworkError`, `ApiServerError`
+---
+
+## 📦 Nuevas Dependencias (v5.0.4)
+
+**Frontend**:
+```json
+{
+  "react-day-picker": "^9.6.4",
+  "date-fns": "^4.1.0",
+  "clsx": "^2.1.1",
+  "tailwind-merge": "^3.0.2"
+}
+```
+
+**Archivos Nuevos**:
+- `frontend/components/ui/Calendar.tsx` - Calendario visual
+- `frontend/lib/utils.ts` - Utilidad `cn()` para clases Tailwind
 
 ---
 
 ## ❌ No Implementado (Pendiente)
-
-### Importación Excel
-- ❌ Parser de archivos `.xls` / `.xlsx`
-- ❌ UI de importación (botón + modal)
-- ❌ Validación de RUT chileno
-- ❌ Bulk insert a PostgreSQL
-
-**Nota**: Existen archivos untracked:
-- `frontend/components/appointments/ImportExcelButton.tsx`
-- `backend/src/utils/excelParser.ts`
-- Scripts de prueba en `backend/scripts/`
-
-Estos NO están en el commit actual.
-
----
 
 ### Sistema de Recordatorios
 - ❌ BullMQ jobs programados (72h, 48h, 24h)
 - ❌ Scheduler que revisa citas próximas
 - ❌ Envío de recordatorios (Twilio)
 
-**Estado**:
-- Redis conectado
-- ReminderScheduler inicializado
-- No hay jobs activos
-
----
-
 ### Integración WhatsApp (Twilio)
-- ❌ Webhook `/api/webhooks/whatsapp` implementado pero no testeado
+- ❌ Webhook `/api/webhooks/whatsapp` (implementado, no testeado)
 - ❌ Envío de mensajes salientes
-- ❌ Procesamiento de mensajes entrantes
-- ❌ Confirmación/Cancelación de citas
 - ❌ Intent detection (Groq)
-
-**Nota**: Los botones en `AppointmentActions.tsx` son solo UI, no envían mensajes reales.
-
----
 
 ### Integración Voz (ElevenLabs)
 - ❌ Llamadas automatizadas
 - ❌ Conversación bidireccional
-- ❌ DTMF detection (1 = confirmar, 2 = cancelar)
-
-**Nota**: Existe placeholder en `AppointmentActions.tsx` para modal de conversación.
-
----
-
-### Dashboard Métricas
-- ❌ Gráficos de tendencias
-- ❌ Tasa de confirmación
-- ❌ Tasa de no-show
-- ❌ Ahorro estimado
-- ❌ Recordatorios enviados por cita
+- ❌ DTMF detection
 
 ---
 
 ## 🔧 Configuración Local
 
 ### Puertos
-- **Frontend**: `http://localhost:3002` (puerto 3000 en uso)
+- **Frontend**: `http://localhost:3000`
 - **Backend**: `http://localhost:3001`
 - **PostgreSQL**: Railway o local
 - **Redis**: Railway o local (localhost:6379)
@@ -158,63 +130,27 @@ Estos NO están en el commit actual.
 **Backend** (`.env`):
 ```bash
 DATABASE_URL="postgresql://..."
-REDIS_URL="redis://..."
-TWILIO_ACCOUNT_SID="..."
-TWILIO_AUTH_TOKEN="..."
-TWILIO_WHATSAPP_FROM="+..."
-GROQ_API_KEY="..."
-ELEVENLABS_API_KEY="..."
+REDIS_URL="redis://..." # Opcional para MVP
 ```
 
 **Frontend** (`.env.local`):
 ```bash
 NEXT_PUBLIC_API_URL="http://localhost:3001"
-NEXT_PUBLIC_ELEVENLABS_AGENT_ID="..."
 ```
 
 ---
 
-## 📝 Archivos Modificados (para commit)
+## 📝 Cambios en v5.0.4
 
-**Backend**:
-- `backend/src/app.ts` - CORS multi-origin
-- `backend/src/routes/appointments.ts` - Endpoint con query params
-- `backend/src/utils/appointmentMapper.ts` - Especialidades chilenas
-
-**Frontend**:
-- `frontend/components/AppointmentTable.tsx` - Fetch + error handling
-- `frontend/components/appointments/AppointmentCard.tsx` - Emojis + layout
-- `frontend/components/appointments/AppointmentDetailsModal.tsx` - Modal redesign
-- `frontend/components/appointments/AppointmentActions.tsx` - Botones UI
-- `frontend/components/appointments/ServerManagementContainer.tsx` - Filters + sorting
-- `frontend/app/layout.tsx` - Layout config
-- `frontend/tsconfig.json` - TS config
-
-**Eliminados**:
-- `frontend/globals.css` → `frontend/app/globals.css` (movido)
+1. **StatusSelector** - Muestra acciones (Confirmar, Reagendar) en dropdown
+2. **StatusIndicator** - Muestra estados reales en español
+3. **AppointmentCard** - Colores por estado real (AGENDADO → amarillo)
+4. **Calendar** - Nuevo componente visual con react-day-picker
+5. **AppointmentDetailsModal** - Panel de reagendamiento con calendario + horarios
+6. **appointmentMapper** - Añade `displayStatus` separado de `status`
+7. **Eliminado** - Campo "Progreso" del log de actividad
 
 ---
 
-## 🚀 Siguiente Fase (Recomendado)
-
-**Priority 1**: Sistema de Recordatorios
-1. BullMQ jobs configuration
-2. Scheduler que revisa appointments próximas (72h, 48h, 24h)
-3. Integración Twilio WhatsApp (envío real)
-4. Testing con números reales
-
-**Priority 2**: Importación Excel
-1. Parser de `.xls` / `.xlsx`
-2. UI de importación (modal + drag & drop)
-3. Validación RUT
-4. Bulk insert a PostgreSQL
-
-**Priority 3**: Dashboard Métricas
-1. Tasa de confirmación / no-show
-2. Gráficos de tendencias
-3. Estadísticas por doctor/especialidad
-
----
-
-*Version: 5.0.2*
-*Last Updated: 2025-11-18*
+*Version: 5.0.4*
+*Last Updated: 2025-11-27*

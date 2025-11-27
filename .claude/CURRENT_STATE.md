@@ -1,7 +1,7 @@
-# Estado Actual del Proyecto (v5.0.4)
+# Estado Actual del Proyecto (v5.0.5)
 
 **Fecha**: 2025-11-27
-**Estado**: Dashboard MVP + Métricas + Sistema de Estados Mejorado
+**Estado**: Dashboard MVP + Métricas + ElevenLabs Integration Actualizada
 
 ---
 
@@ -98,6 +98,49 @@ MEDICINA GENERAL 🩺
 
 ---
 
+### Integración Voz (ElevenLabs) - v5.0.5
+
+**Servicios**:
+- ✅ `ElevenLabsBatchService.ts` - Batch Calling API nativa (Mayo 2025)
+- ✅ `CallQueueService.ts` - Cola manual con modo producción/simulación
+
+**Endpoints API Llamadas**:
+- `POST /api/calls/initiate` - Llamada individual con dynamic_variables
+- `POST /api/calls/batch` - Batch calls via ElevenLabs API nativa
+- `GET /api/calls/batch/:batchId` - Estado de batch
+- `GET /api/calls/batches` - Listar todos los batches
+- `POST /api/calls/bulk` - Cola manual (legacy)
+- `GET /api/calls/queue` - Estado de cola manual
+- `GET /api/calls/metrics` - Métricas de llamadas
+- `GET /api/calls` - Historial de llamadas
+
+**Webhooks** (`/api/webhooks/elevenlabs`):
+- ✅ Verificación HMAC-SHA256 correcta (formato `t=timestamp,v0=hash`)
+- ✅ Event types actualizados: `post_call_transcription`, `post_call_audio`, `call_initiation_failure`
+- ✅ Auto-actualización estado cita basada en análisis de conversación
+
+**Dynamic Variables** (personalizan cada llamada):
+```typescript
+conversation_initiation_client_data: {
+  dynamic_variables: {
+    patient_name: "Juan Pérez",
+    appointment_date: "lunes 28 de noviembre a las 10:00",
+    doctor_name: "Dra. María García",
+    specialty: "Nutricionista"
+  }
+}
+```
+
+**Variables de Entorno Requeridas**:
+```bash
+ELEVENLABS_API_KEY=""
+ELEVENLABS_AGENT_ID=""
+ELEVENLABS_PHONE_NUMBER_ID=""
+ELEVENLABS_WEBHOOK_SECRET=""
+```
+
+---
+
 ## ❌ No Implementado (Pendiente)
 
 ### Sistema de Recordatorios
@@ -110,10 +153,9 @@ MEDICINA GENERAL 🩺
 - ❌ Envío de mensajes salientes
 - ❌ Intent detection (Groq)
 
-### Integración Voz (ElevenLabs)
-- ❌ Llamadas automatizadas
-- ❌ Conversación bidireccional
-- ❌ DTMF detection
+### Escalación Automática
+- ❌ WhatsApp sin respuesta → Voz automática
+- ❌ Voz sin respuesta → Marcado para llamada humana
 
 ---
 
@@ -140,6 +182,16 @@ NEXT_PUBLIC_API_URL="http://localhost:3001"
 
 ---
 
+## 📝 Cambios en v5.0.5
+
+1. **Webhook ElevenLabs** - Verificación HMAC corregida (`t=timestamp,v0=hash`)
+2. **Event Types** - Actualizados a docs 2025: `post_call_transcription`, `call_initiation_failure`
+3. **CallQueueService** - Habilitado modo producción con llamadas reales
+4. **Dynamic Variables** - Personalización de llamadas con datos del paciente
+5. **ElevenLabsBatchService** - Nuevo servicio para Batch Calling API nativa
+6. **Nuevos Endpoints** - `/api/calls/batch`, `/api/calls/batches`
+7. **.env.example** - Añadidas variables `ELEVENLABS_PHONE_NUMBER_ID` y `ELEVENLABS_WEBHOOK_SECRET`
+
 ## 📝 Cambios en v5.0.4
 
 1. **StatusSelector** - Muestra acciones (Confirmar, Reagendar) en dropdown
@@ -152,5 +204,5 @@ NEXT_PUBLIC_API_URL="http://localhost:3001"
 
 ---
 
-*Version: 5.0.4*
+*Version: 5.0.5*
 *Last Updated: 2025-11-27*

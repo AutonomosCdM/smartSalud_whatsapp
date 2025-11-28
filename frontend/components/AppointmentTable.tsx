@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ServerManagementContainer } from "./appointments/ServerManagementContainer";
 import { ImportExcelButton } from "./appointments/ImportExcelButton";
 import { CallDashboard } from "./CallDashboard";
@@ -17,7 +17,7 @@ export function AppointmentTable() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [lastGoodData, setLastGoodData] = useState<Server[]>([]);
 
-  const loadAppointments = async () => {
+  const loadAppointments = useCallback(async () => {
     setLoadingState("loading");
     setError(null);
 
@@ -33,13 +33,16 @@ export function AppointmentTable() {
       setLoadingState("error");
 
       // Keep last known good data visible on error
-      if (lastGoodData.length > 0) {
-        setServers(lastGoodData);
-      }
+      setLastGoodData(prev => {
+        if (prev.length > 0) {
+          setServers(prev);
+        }
+        return prev;
+      });
 
       console.error("[AppointmentTable] Fetch error:", apiError);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadAppointments();
@@ -47,7 +50,7 @@ export function AppointmentTable() {
     // Refresh every 30 seconds to catch status updates from ElevenLabs calls
     const interval = setInterval(loadAppointments, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadAppointments]);
 
   // Loading State
   if (loadingState === "loading" && servers.length === 0) {

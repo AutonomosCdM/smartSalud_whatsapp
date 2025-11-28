@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { ServerManagementContainer } from "./appointments/ServerManagementContainer";
 import { ImportExcelButton } from "./appointments/ImportExcelButton";
+import { CallDashboard } from "./CallDashboard";
 import type { Server } from "@/lib/types";
 import { RefreshCw, AlertCircle } from "lucide-react";
 import { fetchAppointments, handleApiError, type ApiError } from "@/lib/api";
@@ -43,8 +44,8 @@ export function AppointmentTable() {
   useEffect(() => {
     loadAppointments();
 
-    // Refresh every 30 minutes
-    const interval = setInterval(loadAppointments, 1800000);
+    // Refresh every 30 seconds to catch status updates from ElevenLabs calls
+    const interval = setInterval(loadAppointments, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -58,7 +59,7 @@ export function AppointmentTable() {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                <h1 className="text-xl font-medium text-foreground">Loading Appointments...</h1>
+                <h1 className="text-xl font-medium text-foreground">Cargando Citas...</h1>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -68,7 +69,7 @@ export function AppointmentTable() {
                 className="px-4 py-2 bg-muted/50 text-muted-foreground rounded-lg flex items-center gap-2 cursor-not-allowed opacity-50"
               >
                 <RefreshCw className="w-4 h-4" />
-                Refresh
+                Actualizar
               </button>
             </div>
           </div>
@@ -130,7 +131,7 @@ export function AppointmentTable() {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-red-500" />
-                <h1 className="text-xl font-medium text-foreground">Error Loading Appointments</h1>
+                <h1 className="text-xl font-medium text-foreground">Error al Cargar Citas</h1>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -140,7 +141,7 @@ export function AppointmentTable() {
                 className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg flex items-center gap-2 transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
-                Retry
+                Reintentar
               </button>
             </div>
           </div>
@@ -155,7 +156,7 @@ export function AppointmentTable() {
               className="px-6 py-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/40 rounded-lg flex items-center gap-2 mx-auto transition-colors font-medium"
             >
               <RefreshCw className="w-5 h-5" />
-              Try Again
+              Intentar de Nuevo
             </button>
           </div>
         </div>
@@ -173,10 +174,10 @@ export function AppointmentTable() {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-green-500" />
-                <h1 className="text-xl font-medium text-foreground">Upcoming Appointments</h1>
+                <h1 className="text-xl font-medium text-foreground">Próximas Citas</h1>
               </div>
               <div className="text-sm text-muted-foreground">
-                0 appointments loaded
+                0 citas cargadas
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -186,7 +187,7 @@ export function AppointmentTable() {
                 className="px-4 py-2 bg-muted/50 hover:bg-muted text-foreground rounded-lg flex items-center gap-2 transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
-                Refresh
+                Actualizar
               </button>
             </div>
           </div>
@@ -194,13 +195,13 @@ export function AppointmentTable() {
           {/* Empty Message */}
           <div className="bg-muted/30 border border-border/30 rounded-xl p-16 text-center">
             <div className="text-6xl mb-4">📅</div>
-            <h2 className="text-2xl font-bold text-foreground mb-2">No Appointments Found</h2>
+            <h2 className="text-2xl font-bold text-foreground mb-2">No se encontraron citas</h2>
             <p className="text-muted-foreground mb-2">
-              There are no appointments scheduled in the next 14 days.
+              No hay citas programadas para los próximos 14 días.
             </p>
             {lastUpdated && (
               <p className="text-xs text-muted-foreground">
-                Last updated: {lastUpdated.toLocaleString()}
+                Última actualización: {lastUpdated.toLocaleString()}
               </p>
             )}
           </div>
@@ -212,6 +213,9 @@ export function AppointmentTable() {
   // Success State with Data
   return (
     <div className="w-full max-w-7xl mx-auto p-6">
+      {/* Call Dashboard */}
+      <CallDashboard />
+
       <div className="relative">
         {/* Status Bar */}
         <div className="mb-4 flex items-center justify-between">
@@ -220,7 +224,7 @@ export function AppointmentTable() {
               {loadingState === "loading" ? (
                 <>
                   <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                  <span className="text-sm text-muted-foreground">Refreshing...</span>
+                  <span className="text-sm text-muted-foreground">Actualizando...</span>
                 </>
               ) : loadingState === "error" ? (
                 <>
@@ -231,15 +235,20 @@ export function AppointmentTable() {
                 <>
                   <div className="w-2 h-2 rounded-full bg-green-500" />
                   <span className="text-sm text-muted-foreground">
-                    {servers.length} appointments loaded
+                    {servers.length} citas cargadas
                   </span>
                 </>
               )}
             </div>
             {lastUpdated && (
-              <span className="text-xs text-muted-foreground">
-                Last updated: {lastUpdated.toLocaleTimeString()}
-              </span>
+              <>
+                <span className="text-xs text-muted-foreground">
+                  Última actualización: {lastUpdated.toLocaleTimeString()}
+                </span>
+                <span className="text-xs text-muted-foreground opacity-60">
+                  • Auto-refresh cada 30s
+                </span>
+              </>
             )}
           </div>
         </div>
@@ -257,15 +266,16 @@ export function AppointmentTable() {
               onClick={loadAppointments}
               className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/40 rounded text-sm transition-colors"
             >
-              Retry
+              Reintentar
             </button>
           </div>
         )}
 
         {/* Main Table */}
         <ServerManagementContainer
-          title="Upcoming Appointments"
+          title="Próximas Citas"
           servers={servers}
+          onRefresh={loadAppointments}
         />
       </div>
     </div>

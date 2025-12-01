@@ -129,14 +129,48 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    // Buscar cita pendiente
-    const appointment = await prisma.appointment.findFirst({
-      where: {
-        patientId: patient.id,
-        status: 'AGENDADO'
-      },
-      orderBy: { appointmentDate: 'asc' }
-    });
+    // CAMBIO 2: Obtener appointmentId de la conversación si existe
+    let appointmentId: string | undefined;
+    if (conversation && conversation.conversationData) {
+      const convData = conversation.conversationData as any;
+      appointmentId = convData.appointmentId;
+    }
+
+    // Buscar la cita ESPECÍFICA del contexto
+    let appointment = null;
+    if (appointmentId) {
+      appointment = await prisma.appointment.findUnique({
+        where: { id: appointmentId }
+      });
+
+      // Verificar que pertenece al paciente
+      if (appointment && appointment.patientId !== patient.id) {
+        appointment = null;
+      }
+    }
+
+    // Fallback: si no hay contexto, buscar AGENDADO
+    if (!appointment) {
+      appointment = await prisma.appointment.findFirst({
+        where: {
+          patientId: patient.id,
+          appointmentDate: { gte: new Date() },
+          status: 'AGENDADO'
+        },
+        orderBy: { appointmentDate: 'asc' }
+      });
+    }
+
+    // Si aún no hay, buscar cualquier cita futura para info
+    if (!appointment) {
+      appointment = await prisma.appointment.findFirst({
+        where: {
+          patientId: patient.id,
+          appointmentDate: { gte: new Date() }
+        },
+        orderBy: { appointmentDate: 'asc' }
+      });
+    }
 
     // Si no hay conversación activa, manejar respuesta inicial
     if (!conversation) {
@@ -149,8 +183,7 @@ router.post('/', validateTwilioSignature, async (req, res) => {
     }
 
     // Si hay conversación esperando selección de slot
-    if (conversation.step === 'WAITING_RUT') {
-      // En realidad usamos este estado para esperar selección de slot
+    if (conversation.step === 'WAITING_SLOT_SELECTION') {
       return await handleSlotSelection(res, normalizedMessage, patient, appointment, conversation);
     }
 
@@ -176,8 +209,34 @@ async function handleInitialResponse(
 ) {
   const appointmentDate = formatDateForMessage(new Date(appointment.appointmentDate));
 
+  // VALIDACIÓN: Si la cita ya fue procesada, no permitir más acciones
+  if (appointment.status !== 'AGENDADO') {
+    const statusMessages: Record<string, string> = {
+      CONFIRMADO: `✅ Tu cita ya está confirmada.\n\n📅 ${appointmentDate}\n🏥 ${appointment.specialty || 'Consulta'}\n\n¡Te esperamos! Recuerda llegar 15 minutos antes.`,
+      CANCELADO: `❌ Tu cita fue cancelada.\n\nSi necesitas agendar una nueva cita, contacta al CESFAM.\n📞 Teléfono: (2) 2XXX XXXX`,
+      REAGENDADO: `📅 Tu cita ya fue reagendada.\n\nSi necesitas más cambios, contacta al CESFAM.\n📞 Teléfono: (2) 2XXX XXXX`
+    };
+
+    console.log(`[WhatsApp] Cita ${appointment.id} ya procesada (${appointment.status}), ignorando acción`);
+    return sendResponse(res, statusMessages[appointment.status] || 'Tu cita ya fue procesada.');
+  }
+
   // SI - Confirmar cita
   if (message === 'si' || message === 'sí' || message === '1' || message.includes('confirmo') || message.includes('confirmar')) {
+    // CAMBIO 3: Completar la conversación
+    const activeConv = await prisma.conversation.findFirst({
+      where: {
+        phone: patient.phone,
+        step: { not: 'COMPLETED' }
+      }
+    });
+    if (activeConv) {
+      await prisma.conversation.update({
+        where: { id: activeConv.id },
+        data: { step: 'COMPLETED', completedAt: new Date() }
+      });
+    }
+
     await prisma.appointment.update({
       where: { id: appointment.id },
       data: {
@@ -201,6 +260,20 @@ async function handleInitialResponse(
 
   // CANCELAR - Cancelar cita
   if (message === 'cancelar' || message === 'cancelo' || message.includes('cancelar')) {
+    // CAMBIO 3: Completar la conversación
+    const activeConv = await prisma.conversation.findFirst({
+      where: {
+        phone: patient.phone,
+        step: { not: 'COMPLETED' }
+      }
+    });
+    if (activeConv) {
+      await prisma.conversation.update({
+        where: { id: activeConv.id },
+        data: { step: 'COMPLETED', completedAt: new Date() }
+      });
+    }
+
     await prisma.appointment.update({
       where: { id: appointment.id },
       data: {
@@ -237,7 +310,7 @@ async function handleInitialResponse(
       data: {
         phone: patient.phone,
         patientId: patient.id,
-        step: 'WAITING_RUT', // Usamos este estado para esperar slot
+        step: 'WAITING_SLOT_SELECTION',
         conversationData: {
           appointmentId: appointment.id,
           availableSlots: slots.map(s => ({ id: s.id, date: s.appointmentDate }))
@@ -468,6 +541,25 @@ router.post('/send-reminder', async (req, res): Promise<void> => {
     }
 
     const appointmentDate = formatDateForMessage(new Date(appointment.appointmentDate));
+
+    // Cerrar conversaciones existentes para limpiar estado previo
+    const existingConv = await prisma.conversation.findFirst({
+      where: {
+        phone: appointment.patient.phone,
+        step: { not: 'COMPLETED' }
+      }
+    });
+
+    if (existingConv) {
+      await prisma.conversation.update({
+        where: { id: existingConv.id },
+        data: { step: 'COMPLETED', completedAt: new Date() }
+      });
+    }
+
+    // NO crear conversación aquí - se crea solo cuando usuario elige "Reagendar"
+    // appointmentId se obtiene del fallback (línea 153-162) buscando cita AGENDADO del paciente
+
     let messageSid: string;
 
     if (useButtons) {

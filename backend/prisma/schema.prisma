@@ -33,7 +33,7 @@ enum ReminderType {
 }
 
 enum ConversationStep {
-  WAITING_RUT
+  WAITING_SLOT_SELECTION
   AUTHENTICATED
   INTENT_DETECTED
   EXECUTING_ACTION
@@ -156,7 +156,7 @@ model Conversation {
   patientId       String?          @map("patient_id")
   patient         Patient?         @relation(fields: [patientId], references: [id], onDelete: SetNull)
 
-  step            ConversationStep @default(WAITING_RUT)
+  step            ConversationStep @default(WAITING_SLOT_SELECTION)
   currentIntent   String?          @map("current_intent") @db.VarChar(50)
   conversationData Json?           @map("conversation_data")
 

@@ -1,24 +1,9 @@
-# smartSalud V5 - Sistema Autónomo de Gestión de Citas Médicas
+# smartSalud V5 - Sistema de Confirmación de Citas via WhatsApp
 
-![CI](https://github.com/your-org/smartSalud_V5/actions/workflows/ci.yml/badge.svg)
+Sistema autónomo que reduce no-shows en hospitales/CEFAMs mediante recordatorios WhatsApp con flujo conversacional interactivo.
 
-Sistema autónomo que reduce no-shows en hospitales/CFAMs mediante recordatorios escalonados (72h, 48h, 24h), WhatsApp conversacional y voice calls automatizadas.
-
-## GitHub Secrets (para CI/CD)
-
-Para que los workflows funcionen correctamente, agrega los siguientes secretos en la configuración del repositorio (Settings → Secrets → Actions):
-- `DATABASE_URL` – URL de conexión a PostgreSQL (ej. `postgresql://user:pass@host:5432/dbname`).
-- `TWILIO_ACCOUNT_SID` y `TWILIO_AUTH_TOKEN` – credenciales de Twilio.
-- `TWILIO_WHATSAPP_NUMBER` – número de WhatsApp habilitado.
-- `ELEVENLABS_API_KEY` – clave de ElevenLabs.
-- `ELEVENLABS_AGENT_ID` – ID del agente de voz.
-- `OPENAI_API_KEY` – clave de OpenAI/Groq.
-- `RAILWAY_TOKEN` – token de acceso a Railway (para el workflow de despliegue).
-
-Sistema autónomo que reduce no-shows en hospitales/CFAMs mediante recordatorios escalonados (72h, 48h, 24h), WhatsApp conversacional y voice calls automatizadas.
-
-**Version**: 5.0 (Arquitectura simplificada vs v4)
-**Status**: Setup inicial
+**Version**: 5.2 (WhatsApp Integration)
+**Status**: Production Ready
 **Infrastructure**: Railway (containers)
 
 ---
@@ -27,55 +12,44 @@ Sistema autónomo que reduce no-shows en hospitales/CFAMs mediante recordatorios
 
 Hospitales pierden **25% de citas por no-shows** → pérdida de ingresos + ineficiencia operativa.
 
-**Solución**: Sistema de recordatorios automáticos + comunicación bidireccional por WhatsApp + escalación a voice calls + notificación para llamadas humanas.
+**Solución**: Sistema de recordatorios automáticos via WhatsApp con flujo conversacional para confirmar, reagendar o cancelar citas.
 
 ---
 
 ## Características Principales
 
-### ✅ Sistema de Recordatorios Escalonados
-- **72 horas antes**: WhatsApp/SMS recordatorio
-- **48 horas antes**: Segundo recordatorio
-- **24 horas antes**: Último recordatorio
-- **Sin respuesta**: Llamada de voz automatizada (ElevenLabs)
-- **Sin contestar**: Alerta para llamada humana
+### WhatsApp Conversacional (Twilio)
+- **Recordatorio automático** con datos de la cita
+- **Flujo interactivo**:
+  - `SI` → Confirma cita (CONFIRMADO)
+  - `NO` → Muestra 2 slots disponibles → Selecciona → REAGENDADO
+  - `CANCELAR` → Cancela cita (CANCELADO)
+- **Validación de paciente** por número de teléfono
+- **Estado de conversación** persistente para flujos multi-paso
 
-### ✅ WhatsApp Conversacional
-- Validación RUT + teléfono
-- Intent detection (GPT-4): confirmar, cancelar, reagendar
-- Flujo natural de conversación
-- Reagendamiento automático
-
-### ✅ Dashboard Administrativo
+### Dashboard Administrativo
 - Importar citas (Excel)
 - Ver estados en tiempo real
+- Enviar recordatorios manuales
 - Métricas clave (no-show rate, confirmación)
-- Alertas para llamadas urgentes
 
-### ✅ Gestión Avanzada de Llamadas (Nuevo)
-- **Historial Completo**: Registro detallado de todas las llamadas de voz.
-- **Dashboard de Métricas**: KPIs en tiempo real (tasa de éxito, duración, tendencias).
-- **Bulk Calling**: Llamadas masivas a pacientes seleccionados con cola de procesamiento.
-- **Simulación**: Modo de pruebas para validar flujos sin costo.
-
-### ✅ Máquina de Estados
-6 estados: AGENDADO → CONFIRMADO/REAGENDADO/CANCELADO/PENDIENTE_LLAMADA/NO_SHOW
+### Máquina de Estados Simplificada
+```
+AGENDADO → CONFIRMADO | REAGENDADO | CANCELADO
+```
 
 ---
 
 ## Stack Técnico
 
-**Frontend**: Next.js 15 + TypeScript + Tailwind CSS + Sonner (Toasts)
-**Backend**: Node.js + Express + TypeScript + BullMQ (Queue logic)
-**Database**: PostgreSQL (Railway managed)
-**ORM**: Prisma
-**Scheduler**: node-cron (in-process)
-**Infrastructure**: Railway (containers)
-
-**Integraciones**:
-- Twilio WhatsApp Business API (bidireccional)
-- ElevenLabs API (voz automatizada)
-- Groq LLM (intent detection - Llama 3.3 70B)
+| Capa | Tecnología |
+|------|------------|
+| Frontend | Next.js 15 + TypeScript + Tailwind CSS |
+| Backend | Node.js + Express + TypeScript |
+| Database | PostgreSQL (Railway) |
+| ORM | Prisma |
+| WhatsApp | Twilio WhatsApp Business API |
+| Infrastructure | Railway (containers) |
 
 ---
 
@@ -83,10 +57,9 @@ Hospitales pierden **25% de citas por no-shows** → pérdida de ingresos + inef
 
 ### Prerequisites
 - Node.js 20+
-- PostgreSQL 14+ (or Railway account)
-- Twilio account (WhatsApp Business API)
-- ElevenLabs API key
-- OpenAI API key
+- PostgreSQL 14+
+- Twilio account (WhatsApp Sandbox o Business API)
+- ngrok (para desarrollo local)
 
 ### Installation
 
@@ -95,30 +68,20 @@ Hospitales pierden **25% de citas por no-shows** → pérdida de ingresos + inef
 git clone https://github.com/your-org/smartSalud_V5.git
 cd smartSalud_V5
 
-# Install dependencies (backend)
+# Backend
 cd backend
 npm install
-
-# Install dependencies (frontend)
-cd ../frontend
-npm install
-
-# Configure environment variables
-cp .env.example .env
-# Edit .env with your credentials
-
-# Setup database
-cd backend
+cp .env.example .env  # Editar con credenciales
 npx prisma migrate dev
+npm run dev  # Port 3002
 
-# Run development servers
-npm run dev:backend  # Port 3001
-npm run dev:frontend # Port 3000
+# Frontend (nueva terminal)
+cd frontend
+npm install
+npm run dev  # Port 3000
 ```
 
 ### Environment Variables
-
-Create `.env` files in `backend/` and `frontend/`:
 
 **backend/.env**:
 ```bash
@@ -126,17 +89,64 @@ DATABASE_URL=postgresql://user:password@localhost:5432/smartsalud
 TWILIO_ACCOUNT_SID=ACxxx
 TWILIO_AUTH_TOKEN=xxx
 TWILIO_WHATSAPP_NUMBER=+14155238886
-ELEVENLABS_API_KEY=xxx
-ELEVENLABS_VOICE_ID=xxx
-OPENAI_API_KEY=sk-xxx
 NODE_ENV=development
-PORT=3001
+PORT=3002
 ```
 
 **frontend/.env.local**:
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:3001
+NEXT_PUBLIC_API_URL=http://localhost:3002
 ```
+
+### Configurar Twilio Webhook
+
+1. Iniciar ngrok: `ngrok http 3002`
+2. En Twilio Console → Messaging → WhatsApp Sandbox
+3. Configurar webhook: `https://xxx.ngrok-free.app/api/webhooks/whatsapp`
+
+---
+
+## Flujo WhatsApp
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  RECORDATORIO ENVIADO                                    │
+│  "Tienes cita el lunes 2 de dic a las 10:00 AM"         │
+│  "Responde: SI para confirmar, NO para reagendar..."    │
+└─────────────────────────────────────────────────────────┘
+                           │
+           ┌───────────────┼───────────────┐
+           │               │               │
+           ▼               ▼               ▼
+        [ SI ]          [ NO ]       [ CANCELAR ]
+           │               │               │
+           ▼               ▼               ▼
+     CONFIRMADO     Muestra 2 slots    CANCELADO
+                          │
+                    ┌─────┴─────┐
+                    ▼           ▼
+                 [ 1 ]       [ 2 ]
+                    │           │
+                    └─────┬─────┘
+                          ▼
+                    REAGENDADO
+```
+
+---
+
+## API Endpoints
+
+**Base URL**: `http://localhost:3002/api`
+
+| Endpoint | Método | Descripción |
+|----------|--------|-------------|
+| `/appointments` | GET | Listar citas con filtros |
+| `/appointments` | POST | Crear cita |
+| `/appointments/bulk` | POST | Importar Excel |
+| `/appointments/:id` | PATCH | Actualizar estado |
+| `/webhooks/whatsapp` | POST | Webhook Twilio |
+| `/webhooks/whatsapp/send-reminder` | POST | Enviar recordatorio |
+| `/metrics/kpis` | GET | KPIs dashboard |
 
 ---
 
@@ -144,232 +154,79 @@ NEXT_PUBLIC_API_URL=http://localhost:3001
 
 ```
 smartSalud_V5/
-├── .claude/
-│   ├── agents/                # 7 specialized agents
-│   ├── skills/                # Brainstorming, TDD, etc
-│   ├── architecture.md        # System architecture
-│   ├── tech-stack.md          # Technologies & tools
-│   ├── database-schema.md     # PostgreSQL schema
-│   └── api-design.md          # REST API design
 ├── backend/
 │   ├── src/
-│   │   ├── api/               # REST endpoints
-│   │   ├── services/          # Business logic
-│   │   ├── integrations/      # Twilio, ElevenLabs, OpenAI
-│   │   ├── db/                # Prisma schema & queries
-│   │   └── utils/             # Helpers
-│   ├── tests/                 # Unit & integration tests
-│   ├── prisma/                # Database migrations
-│   └── package.json
+│   │   ├── app.ts              # Express setup
+│   │   ├── routes/
+│   │   │   ├── appointments.ts # CRUD citas
+│   │   │   ├── metrics.ts      # KPIs
+│   │   │   └── webhooks/
+│   │   │       └── whatsapp.ts # Webhook Twilio
+│   │   └── services/
+│   └── prisma/schema.prisma    # Database schema
 ├── frontend/
-│   ├── app/                   # Next.js 15 App Router
-│   ├── components/            # React components
-│   ├── lib/                   # Utilities
-│   └── package.json
-├── docs/
-│   ├── IMPLEMENTATION_PLAN.md # 6-week roadmap
-│   ├── DEPLOYMENT.md          # Railway deployment guide
-│   └── INTEGRATIONS.md        # External APIs setup
-├── CLAUDE.md                  # Project instructions (agents)
-└── README.md                  # This file
+│   ├── app/                    # Next.js App Router
+│   └── components/
+│       └── appointments/       # UI components
+└── docs/                       # Documentation
 ```
+
+---
+
+## Database Models
+
+### Core Tables
+
+| Table | Descripción |
+|-------|-------------|
+| `patients` | Pacientes (RUT, nombre, teléfono) |
+| `appointments` | Citas médicas |
+| `conversations` | Estado de conversaciones WhatsApp |
+| `appointment_state_changes` | Auditoría de cambios |
+
+### Estados de Cita
+- `AGENDADO` - Cita programada, pendiente confirmación
+- `CONFIRMADO` - Paciente confirmó asistencia
+- `REAGENDADO` - Paciente cambió fecha
+- `CANCELADO` - Paciente canceló
 
 ---
 
 ## Development
 
 ### Run Tests
-
 ```bash
-# Backend tests
-cd backend
-npm test
-
-# Frontend tests
-cd frontend
-npm test
-
-# Test coverage
-npm run test:coverage
+cd backend && npm test
+cd frontend && npm test
 ```
 
 ### Database Migrations
-
 ```bash
-# Create migration
 npx prisma migrate dev --name migration_name
-
-# Apply migrations (production)
-npx prisma migrate deploy
-
-# Reset database (dev only)
-npx prisma migrate reset
-```
-
-### Cron Jobs (Backend)
-
-Cron jobs run automatically in development:
-- **Every hour**: Check 72h, 48h, 24h reminders
-- **Every hour**: Make voice calls (if needed)
-- **Midnight**: Calculate daily metrics
-
----
-
-## Deployment (Railway)
-
-### 1. Create Railway Project
-
-```bash
-# Install Railway CLI
-npm install -g @railway/cli
-
-# Login
-railway login
-
-# Create project
-railway init
-```
-
-### 2. Add Services
-
-- **Backend**: Node.js container
-- **Frontend**: Next.js container
-- **PostgreSQL**: Managed database addon
-
-### 3. Configure Environment Variables
-
-Add all variables from `.env` to Railway dashboard.
-
-### 4. Deploy
-
-```bash
-git push origin main
-# Railway auto-deploys from main branch
-```
-
-**See**: `docs/DEPLOYMENT.md` for detailed guide
-
----
-
-## Métricas Clave
-
-Dashboard muestra:
-- **Tasa NO-SHOW** (métrica oro): `(no_show / total) * 100`
-- Tasa confirmación: `(confirmados / total) * 100`
-- Tasa reagendamiento
-- Promedio recordatorios por cita
-- Llamadas humanas necesarias
-
----
-
-## API Documentation
-
-**Base URL**: `http://localhost:3001/api`
-
-**Endpoints principales**:
-- `GET /patients` - List patients
-- `POST /patients` - Create patient
-- `GET /appointments` - List appointments
-- `POST /appointments` - Create appointment
-- `POST /appointments/bulk` - Bulk import (Excel)
-- `PATCH /appointments/:id` - Update appointment
-- `GET /metrics/dashboard` - Real-time metrics
-
-**Call Management Endpoints**:
-- `GET /calls` - Call history with filters
-- `GET /calls/metrics` - Call performance KPIs
-- `POST /calls/bulk` - Queue bulk calls
-- `GET /calls/queue` - Check queue status
-- `POST /calls/queue/control` - Manage queue (clear, pause)
-
-**See**: `.claude/api-design.md` for complete API reference
-
----
-
-## Testing Strategy
-
-- **Unit tests**: All services & utilities (80%+ coverage)
-- **Integration tests**: API endpoints + database
-- **E2E tests**: Full user flows (future)
-
-**Run tests**:
-```bash
-npm test              # All tests
-npm run test:watch    # Watch mode
-npm run test:coverage # Coverage report
+npx prisma studio  # GUI para ver datos
 ```
 
 ---
 
-## Contributing
+## GitHub Secrets (CI/CD)
 
-### Agent Workflow
-
-1. **george** - Research & analysis
-2. **architect** - Design & architecture review
-3. **alonso** - Write tests FIRST (TDD)
-4. **valtteri** - Implement features
-5. **adrian** - Security audit & verification
-6. **hamilton** - AI/ML optimization (if applicable)
-
-**See**: `CLAUDE.md` for full delegation protocol
-
----
-
-## Roadmap
-
-**MVP (Week 1-2)**:
-- [x] Project setup
-- [x] Dashboard + Excel import
-- [x] Basic reminders (72h, 48h, 24h)
-- [x] WhatsApp simple confirmation
-
-**Phase 2 (Week 3-4)**:
-- [ ] WhatsApp conversational (RUT validation, intent detection)
-- [ ] Reschedule flow
-- [x] Enhanced dashboard (Call Metrics)
-
-**Phase 3 (Week 5-6)**:
-- [x] Voice calls (ElevenLabs)
-- [x] Bulk Calling & Queue
-- [x] Call History & Details
-- [ ] Escalación humana
-- [ ] Analytics dashboard (Full)
-- [ ] NO_SHOW tracking
-- [ ] Production deployment
-
-**See**: `docs/IMPLEMENTATION_PLAN.md` for detailed roadmap
+```
+DATABASE_URL
+TWILIO_ACCOUNT_SID
+TWILIO_AUTH_TOKEN
+TWILIO_WHATSAPP_NUMBER
+RAILWAY_TOKEN
+```
 
 ---
 
 ## Cost Estimate
 
-**Infrastructure (Railway)**: $25/month (predictable)
-- Frontend: $5/month
-- Backend: $10/month
-- PostgreSQL: $10/month
-
-**APIs (variable, 500 appt/month)**: ~$40/month
-- Twilio WhatsApp: ~$15/month
-- ElevenLabs: ~$10/month
-- OpenAI GPT-4: ~$15/month
-
-**Total**: **$65-100/month**
-
----
-
-## Comparison: v4 vs V5
-
-| Aspect | smartSalud v4 | smartSalud V5 |
-|--------|---------------|---------------|
-| Infrastructure | Cloudflare Workers + D1 | Railway (containers) |
-| Complexity | High (edge computing) | Low (standard Node.js) |
-| Size | 2.3GB (3 projects) | Target: < 500MB (1 project) |
-| Deploy | Wrangler CLI | Git push |
-| Debugging | Difficult | Easy (standard logs) |
-| Cost | Variable | Predictable ($25/mo) |
-
-**Winner**: V5 (simplicidad, mantenibilidad, costo)
+| Item | Costo/mes |
+|------|-----------|
+| Railway (Frontend + Backend + PostgreSQL) | $25 |
+| Twilio WhatsApp (~500 mensajes) | $15 |
+| **Total** | **~$40/mes** |
 
 ---
 
@@ -379,17 +236,6 @@ Proprietary - Autonomos Lab
 
 ---
 
-## Support
-
-**CEO**: César
-**Executive Assistant**: Toto
-**Team**: 7 specialized agents (george, architect, alonso, valtteri, adrian, hamilton, james)
-
-**Documentation**: See `.claude/` directory
-**Issues**: Create issue in repository
-
----
-
-*Version: 5.1 (Call Management Update)*
-*Last Updated: 2025-11-24*
-*Built with ❤️ by Autonomos Lab*
+*Version: 5.2 (WhatsApp Integration)*
+*Last Updated: 2025-11-30*
+*Built with love by Autonomos Lab*

@@ -1,6 +1,12 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import twilio from 'twilio';
+import {
+  sendReminderWithButtons,
+  sendWhatsAppMessage,
+  sendWhatsAppWithButtons,
+  createQuickReplyTemplate,
+} from '../../services/twilioService';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -26,7 +32,7 @@ const validateTwilioSignature = (req: any, res: any, next: any) => {
   next();
 };
 
-// Formatear fecha para mensaje
+// Formatear fecha para mensaje (completo)
 function formatDateForMessage(date: Date): string {
   const weekday = date.toLocaleDateString('es-CL', { weekday: 'long' });
   const day = date.getDate();
@@ -38,6 +44,16 @@ function formatDateForMessage(date: Date): string {
   const minutesStr = minutes > 0 ? `:${minutes.toString().padStart(2, '0')}` : ':00';
 
   return `${weekday} ${day} de ${month} a las ${hour12}${minutesStr} ${period}`;
+}
+
+// Formatear fecha corta para botones (max 20 chars)
+function formatShortDate(date: Date): string {
+  const day = date.getDate();
+  const month = date.toLocaleDateString('es-CL', { month: 'short' });
+  const hour = date.getHours();
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+
+  return `${day} ${month} ${hour}:${minutes}`;
 }
 
 // Obtener slots disponibles
@@ -77,11 +93,24 @@ function normalizePhone(rawPhone: string): string {
 // Webhook principal
 router.post('/', validateTwilioSignature, async (req, res) => {
   try {
-    const { From, Body } = req.body;
+    const { From, Body, ButtonText, ButtonPayload } = req.body;
     const phone = normalizePhone(From);
-    const message = Body.trim().toLowerCase();
 
-    console.log(`[WhatsApp] Mensaje de ${phone}: "${Body}"`);
+    // Priorizar ButtonPayload (respuesta de botón) sobre Body
+    const buttonId = ButtonPayload?.toLowerCase() || '';
+    const message = ButtonText?.trim().toLowerCase() || Body?.trim().toLowerCase() || '';
+
+    console.log(`[WhatsApp] Mensaje de ${phone}: "${Body}" | Button: ${ButtonPayload || 'none'}`);
+
+    // Si es respuesta de botón, mapear a comandos
+    let normalizedMessage = message;
+    if (buttonId === 'confirm' || buttonId === 'slot_1' || buttonId === 'slot_2') {
+      normalizedMessage = buttonId === 'confirm' ? 'si' : buttonId === 'slot_1' ? '1' : '2';
+    } else if (buttonId === 'reschedule') {
+      normalizedMessage = 'no';
+    } else if (buttonId === 'cancel') {
+      normalizedMessage = 'cancelar';
+    }
 
     // Buscar paciente por teléfono
     const patient = await prisma.patient.findFirst({ where: { phone } });
@@ -116,18 +145,18 @@ router.post('/', validateTwilioSignature, async (req, res) => {
       }
 
       // Respuesta inicial: SI, NO, CANCELAR
-      return await handleInitialResponse(res, message, patient, appointment);
+      return await handleInitialResponse(res, normalizedMessage, patient, appointment);
     }
 
     // Si hay conversación esperando selección de slot
     if (conversation.step === 'WAITING_RUT') {
       // En realidad usamos este estado para esperar selección de slot
-      return await handleSlotSelection(res, message, patient, appointment, conversation);
+      return await handleSlotSelection(res, normalizedMessage, patient, appointment, conversation);
     }
 
     // Fallback: manejar como respuesta inicial
     if (appointment) {
-      return await handleInitialResponse(res, message, patient, appointment);
+      return await handleInitialResponse(res, normalizedMessage, patient, appointment);
     }
 
     return sendResponse(res, 'No entendí tu mensaje. Responde SI para confirmar, NO para reagendar, o CANCELAR.');
@@ -219,16 +248,43 @@ async function handleInitialResponse(
     const slot1Date = formatDateForMessage(new Date(slots[0].appointmentDate));
     const slot2Date = slots[1] ? formatDateForMessage(new Date(slots[1].appointmentDate)) : null;
 
-    let responseMsg = `📅 *Horarios Disponibles*\n\n`;
-    responseMsg += `*1.* ${slot1Date}\n`;
-    if (slot2Date) {
-      responseMsg += `*2.* ${slot2Date}\n`;
-    }
-    responseMsg += `\nResponde *1* o *2* para seleccionar, o *CANCELAR* para cancelar tu cita.`;
+    // Crear texto corto para botones (max 20 chars)
+    const slot1Short = formatShortDate(new Date(slots[0].appointmentDate));
+    const slot2Short = slots[1] ? formatShortDate(new Date(slots[1].appointmentDate)) : null;
 
     console.log(`[WhatsApp] Mostrando ${slots.length} slots a ${patient.name}`);
 
-    return sendResponse(res, responseMsg);
+    // Intentar enviar con botones, fallback a texto
+    try {
+      const buttons = [
+        { id: 'slot_1', title: slot1Short },
+      ];
+      if (slot2Short) {
+        buttons.push({ id: 'slot_2', title: slot2Short });
+      }
+
+      const template = await createQuickReplyTemplate(
+        `smartsalud_slots_${Date.now()}`,
+        '📅 *Horarios Disponibles*\n\nSelecciona tu nueva cita:',
+        buttons
+      );
+
+      await sendWhatsAppWithButtons(patient.phone, template.sid);
+
+      // Enviar respuesta vacía (el mensaje ya se envió)
+      return sendEmptyResponse(res);
+    } catch (buttonError) {
+      console.warn('[WhatsApp] Error enviando slots con botones, usando texto');
+
+      let responseMsg = `📅 *Horarios Disponibles*\n\n`;
+      responseMsg += `*1.* ${slot1Date}\n`;
+      if (slot2Date) {
+        responseMsg += `*2.* ${slot2Date}\n`;
+      }
+      responseMsg += `\nResponde *1* o *2* para seleccionar, o *CANCELAR* para cancelar tu cita.`;
+
+      return sendResponse(res, responseMsg);
+    }
   }
 
   // No entendido - mostrar opciones
@@ -376,7 +432,7 @@ async function logStateChange(
   }
 }
 
-// Enviar respuesta TwiML
+// Enviar respuesta TwiML con mensaje
 function sendResponse(res: any, message: string) {
   const twiml = new twilio.twiml.MessagingResponse();
   twiml.message(message);
@@ -384,10 +440,17 @@ function sendResponse(res: any, message: string) {
   res.send(twiml.toString());
 }
 
-// Endpoint para enviar mensaje inicial (usado por el sistema)
+// Enviar respuesta TwiML vacía (cuando ya enviamos mensaje vía API)
+function sendEmptyResponse(res: any) {
+  const twiml = new twilio.twiml.MessagingResponse();
+  res.type('text/xml');
+  res.send(twiml.toString());
+}
+
+// Endpoint para enviar mensaje inicial con botones (usado por el sistema)
 router.post('/send-reminder', async (req, res): Promise<void> => {
   try {
-    const { appointmentId } = req.body;
+    const { appointmentId, useButtons = true } = req.body;
 
     if (!appointmentId) {
       res.status(400).json({ error: 'appointmentId requerido' });
@@ -405,37 +468,60 @@ router.post('/send-reminder', async (req, res): Promise<void> => {
     }
 
     const appointmentDate = formatDateForMessage(new Date(appointment.appointmentDate));
+    let messageSid: string;
 
-    const message =
-      `🏥 *Recordatorio de Cita - CESFAM*\n\n` +
-      `Hola ${appointment.patient.name.split(' ')[0]}!\n\n` +
-      `Tienes una cita agendada:\n` +
-      `📅 ${appointmentDate}\n` +
-      `👨‍⚕️ ${appointment.doctorName || 'Profesional de salud'}\n` +
-      `🏥 ${appointment.specialty || 'Consulta'}\n\n` +
-      `Responde:\n` +
-      `• *SI* para confirmar\n` +
-      `• *NO* para reagendar\n` +
-      `• *CANCELAR* para cancelar`;
+    if (useButtons) {
+      // Enviar con botones interactivos
+      try {
+        messageSid = await sendReminderWithButtons(
+          appointment.patient.phone,
+          appointment.patient.name.split(' ')[0],
+          appointmentDate,
+          appointment.doctorName || 'Profesional de salud',
+          appointment.specialty || 'Consulta'
+        );
+        console.log(`[WhatsApp] Recordatorio con botones enviado: ${messageSid}`);
+      } catch (buttonError: any) {
+        console.warn(`[WhatsApp] Error con botones, usando texto: ${buttonError.message}`);
+        // Fallback a mensaje de texto
+        messageSid = await sendWhatsAppMessage(
+          appointment.patient.phone,
+          `🏥 *Recordatorio de Cita - CESFAM*\n\n` +
+          `Hola ${appointment.patient.name.split(' ')[0]}!\n\n` +
+          `Tienes una cita agendada:\n` +
+          `📅 ${appointmentDate}\n` +
+          `👨‍⚕️ ${appointment.doctorName || 'Profesional de salud'}\n` +
+          `🏥 ${appointment.specialty || 'Consulta'}\n\n` +
+          `Responde:\n` +
+          `• *SI* para confirmar\n` +
+          `• *NO* para reagendar\n` +
+          `• *CANCELAR* para cancelar`
+        );
+      }
+    } else {
+      // Enviar mensaje de texto simple
+      messageSid = await sendWhatsAppMessage(
+        appointment.patient.phone,
+        `🏥 *Recordatorio de Cita - CESFAM*\n\n` +
+        `Hola ${appointment.patient.name.split(' ')[0]}!\n\n` +
+        `Tienes una cita agendada:\n` +
+        `📅 ${appointmentDate}\n` +
+        `👨‍⚕️ ${appointment.doctorName || 'Profesional de salud'}\n` +
+        `🏥 ${appointment.specialty || 'Consulta'}\n\n` +
+        `Responde:\n` +
+        `• *SI* para confirmar\n` +
+        `• *NO* para reagendar\n` +
+        `• *CANCELAR* para cancelar`
+      );
+    }
 
-    // Enviar vía Twilio
-    const twilioClient = twilio(
-      process.env.TWILIO_ACCOUNT_SID,
-      process.env.TWILIO_AUTH_TOKEN
-    );
-
-    const result = await twilioClient.messages.create({
-      from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
-      to: `whatsapp:${appointment.patient.phone}`,
-      body: message
-    });
-
-    console.log(`[WhatsApp] Recordatorio enviado a ${appointment.patient.phone}: ${result.sid}`);
+    console.log(`[WhatsApp] Recordatorio enviado a ${appointment.patient.phone}: ${messageSid}`);
 
     res.json({
       success: true,
-      messageSid: result.sid,
-      phone: appointment.patient.phone
+      messageSid,
+      phone: appointment.patient.phone,
+      withButtons: useButtons
     });
 
   } catch (error: any) {

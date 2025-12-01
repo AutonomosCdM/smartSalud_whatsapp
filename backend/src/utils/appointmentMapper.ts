@@ -15,6 +15,7 @@ export interface ServerFormat {
   id: string;
   number: string;
   serviceName: string;
+  patientRut?: string; // RUT del paciente
   serviceNameSubtitle?: string; // Especialidad del paciente
   osType: OSType; // Specialty icons
   serviceLocation: string;
@@ -23,7 +24,8 @@ export interface ServerFormat {
   ip: string;
   dueDate: string;
   cpuPercentage: number;
-  status: DisplayStatus; // Appointment status
+  status: string; // Real appointment status (AGENDADO, CONFIRMADO, etc.)
+  displayStatus: DisplayStatus; // Visual display status (active, paused, inactive)
 }
 
 /**
@@ -203,7 +205,7 @@ function getProfessionalTitle(
     'terapeuta': { male: 'Terapeuta', female: 'Terapeuta' },
 
     // Medical specialties
-    'medicina general': { male: 'Médico General', female: 'Médica General' },
+    'medicina general': { male: 'Medicina General', female: 'Medicina General' },
     'cardiología': { male: 'Cardiólogo', female: 'Cardióloga' },
     'cardiologia': { male: 'Cardiólogo', female: 'Cardióloga' },
     'dermatología': { male: 'Dermatólogo', female: 'Dermatóloga' },
@@ -214,7 +216,7 @@ function getProfessionalTitle(
     'neurologia': { male: 'Neurólogo', female: 'Neuróloga' },
     'urología': { male: 'Urólogo', female: 'Uróloga' },
     'urologia': { male: 'Urólogo', female: 'Uróloga' },
-    'morbilidad': { male: 'Médico General', female: 'Médica General' },
+    'morbilidad': { male: 'Medicina General', female: 'Medicina General' },
     'salud mental': { male: 'Psiquiatra', female: 'Psiquiatra' },
     'salud_mental': { male: 'Psiquiatra', female: 'Psiquiatra' },
   };
@@ -228,16 +230,17 @@ function getProfessionalTitle(
 }
 
 /**
- * Format appointment date to Chilean format
- * Example: "19/11 07:00" (DD/MM HH:mm in 24h)
+ * Format appointment date to Chilean format with year
+ * Example: "19/11/2025 07:00" (DD/MM/YYYY HH:mm in 24h)
  */
 function formatAppointmentDate(appointmentDate: Date): string {
   const day = String(appointmentDate.getDate()).padStart(2, '0');
   const month = String(appointmentDate.getMonth() + 1).padStart(2, '0');
+  const year = appointmentDate.getFullYear();
   const hours = String(appointmentDate.getHours()).padStart(2, '0');
   const minutes = String(appointmentDate.getMinutes()).padStart(2, '0');
 
-  return `${day}/${month} ${hours}:${minutes}`;
+  return `${day}/${month}/${year} ${hours}:${minutes}`;
 }
 
 /**
@@ -254,6 +257,8 @@ export function transformAppointment(
     number: String(index + 1).padStart(2, '0'),
     // serviceName = Patient name
     serviceName: appointment.patient.name,
+    // patientRut = Patient RUT
+    patientRut: appointment.patient.rut,
     // serviceNameSubtitle = Specialty (for filtering, NOT displayed under patient name)
     serviceNameSubtitle: appointment.specialty || undefined,
     // osType = Specialty icon
@@ -270,8 +275,10 @@ export function transformAppointment(
     dueDate: formatAppointmentDate(appointment.appointmentDate),
     // cpuPercentage = Workflow progress (0-100%)
     cpuPercentage: calculateProgress(appointment.status, appointment.workflowData),
-    // status = Visual status (active/paused/inactive)
-    status: mapStatusToDisplay(appointment.status),
+    // status = Real appointment status
+    status: appointment.status,
+    // displayStatus = Visual status (active/paused/inactive)
+    displayStatus: mapStatusToDisplay(appointment.status),
   };
 }
 

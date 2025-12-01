@@ -17,8 +17,9 @@ datasource db {
 enum AppointmentStatus {
   AGENDADO
   CONFIRMADO
-  REAGENDADO
   CANCELADO
+  CONTACTAR
+  REAGENDADO
   PENDIENTE_LLAMADA
   NO_SHOW
 }
@@ -49,15 +50,42 @@ model Patient {
   name      String   @db.VarChar(255)
   phone     String   @db.VarChar(20)
   email     String?  @db.VarChar(255)
+  
+  // New Clinical Data (Schema V2)
+  birthDate       DateTime? @map("birth_date") @db.Date
+  sector          String?   @db.VarChar(50)
+  riskLevel       String?   @map("risk_level") @db.VarChar(10) // G1, G2, G3
+  careTeamDoctor  String?   @map("care_team_doctor") @db.VarChar(255)
+  deceased        Boolean   @default(false)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   appointments  Appointment[]
   conversations Conversation[]
+  calls         Call[]
+  programs      ChronicProgram[]
 
   @@index([rut])
   @@index([phone])
+  @@index([riskLevel])
   @@map("patients")
+}
+
+model ChronicProgram {
+  id           String    @id @default(uuid())
+  patientId    String    @map("patient_id")
+  patient      Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
+  name         String    @db.VarChar(100) // e.g., "RESPIRATORIO"
+  controlLevel String?   @map("control_level") @db.VarChar(100) // e.g., "ASMA SEVERA NO CONTROLADA"
+  nextControl  DateTime? @map("next_control") @db.Date
+  
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([patientId])
+  @@map("chronic_programs")
 }
 
 model Appointment {
@@ -140,6 +168,86 @@ model Conversation {
   @@index([patientId])
   @@index([step])
   @@map("conversations")
+}
+
+// ============================================
+// ELEVENLABS CALLS
+// ============================================
+
+enum CallStatus {
+  INITIATED
+  RINGING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  NO_ANSWER
+  BUSY
+  CANCELLED
+  // New statuses for better tracking
+  VOICEMAIL       // Left voicemail
+  DISCONNECTED    // Call connected but disconnected immediately (agent issue)
+  WRONG_NUMBER    // Number doesn't belong to patient
+  CALLBACK_REQ    // Patient requested callback
+}
+
+// Outcome of the call conversation
+enum ContactResult {
+  NOT_ATTEMPTED     // Call not yet made
+  NO_CONTACT        // Could not reach patient (no answer, busy, wrong number)
+  CONTACTED_SUCCESS // Reached patient, got confirmation/cancellation/reschedule
+  CONTACTED_PARTIAL // Reached patient but call dropped/incomplete
+  VOICEMAIL_LEFT    // Left voicemail message
+  NEEDS_RETRY       // Should try again later
+}
+
+model Call {
+  id                 String      @id @default(uuid())
+  conversationId     String      @unique @map("conversation_id") @db.VarChar(100)
+
+  patientId          String?     @map("patient_id")
+  patient            Patient?    @relation(fields: [patientId], references: [id], onDelete: SetNull)
+
+  appointmentId      String?     @map("appointment_id")
+
+  phoneNumber        String      @map("phone_number") @db.VarChar(20)
+  agentId            String      @map("agent_id") @db.VarChar(100)
+
+  status             CallStatus  @default(INITIATED)
+
+  // New: Contact result for statistics
+  contactResult      ContactResult @default(NOT_ATTEMPTED) @map("contact_result")
+
+  // New: Attempt tracking
+  attemptNumber      Int         @default(1) @map("attempt_number")
+
+  initiatedAt        DateTime    @default(now()) @map("initiated_at") @db.Timestamptz
+  answeredAt         DateTime?   @map("answered_at") @db.Timestamptz
+  endedAt            DateTime?   @map("ended_at") @db.Timestamptz
+
+  durationSeconds    Int?        @map("duration_seconds")
+
+  // ElevenLabs specific data
+  callSid            String?     @map("call_sid") @db.VarChar(100)
+  transcription      String?     @db.Text
+  summary            String?     @db.Text
+
+  // New: Failure reason for debugging
+  failureReason      String?     @map("failure_reason") @db.VarChar(100)
+
+  // Metadata
+  metadata           Json?
+  errorMessage       String?     @map("error_message") @db.Text
+
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([conversationId])
+  @@index([patientId])
+  @@index([phoneNumber])
+  @@index([status])
+  @@index([contactResult])
+  @@index([initiatedAt])
+  @@map("calls")
 }
 
 model DailyMetric {

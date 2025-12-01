@@ -61,8 +61,8 @@ export function sortAppointments(
           paused: 9,
           inactive: 10,
         };
-        const statusA = statusOrder[a.status] ?? 99;
-        const statusB = statusOrder[b.status] ?? 99;
+        const statusA = statusOrder[a.status as keyof typeof statusOrder] ?? 99;
+        const statusB = statusOrder[b.status as keyof typeof statusOrder] ?? 99;
         comparison = statusA - statusB;
         break;
 

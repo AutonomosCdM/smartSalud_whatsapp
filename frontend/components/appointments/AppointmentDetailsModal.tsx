@@ -5,7 +5,7 @@
 
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Clock } from "lucide-react";
 import type { Server } from "@/lib/types";
@@ -19,6 +19,14 @@ interface AppointmentDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onStatusUpdate?: () => void;
+}
+
+interface ActivityItem {
+  timestamp: string;
+  type: 'status_change' | 'call';
+  message: string;
+  details?: string;
+  changedBy?: string;
 }
 
 /**
@@ -37,6 +45,8 @@ export function AppointmentDetailsModal({
   const [showReschedulePanel, setShowReschedulePanel] = useState(false);
   const [newDate, setNewDate] = useState<string>("");
   const [newTime, setNewTime] = useState<string>("");
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [loadingActivity, setLoadingActivity] = useState(false);
 
   // Sync status only when appointment.id changes (new appointment selected)
   useEffect(() => {
@@ -45,8 +55,25 @@ export function AppointmentDetailsModal({
       setShowReschedulePanel(false);
       setNewDate("");
       setNewTime("");
+      loadActivity(appointment.id);
     }
   }, [appointment?.id]);
+
+  const loadActivity = async (appointmentId: string) => {
+    setLoadingActivity(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const response = await fetch(`${apiUrl}/api/appointments/${appointmentId}/activity`);
+      if (response.ok) {
+        const data = await response.json();
+        setActivity(data.activity || []);
+      }
+    } catch (error) {
+      console.error('[Activity] Error loading activity:', error);
+    } finally {
+      setLoadingActivity(false);
+    }
+  };
 
   if (!appointment) return null;
 
@@ -271,7 +298,6 @@ export function AppointmentDetailsModal({
                   </label>
                   <StatusSelector
                     currentStatus={currentStatus}
-                    appointmentId={appointment.id}
                     onStatusChange={(newStatus) => {
                       // For REAGENDADO, show the reschedule panel without changing status
                       if (newStatus === 'REAGENDADO') {
@@ -333,11 +359,10 @@ export function AppointmentDetailsModal({
                             key={time}
                             onClick={() => setNewTime(time)}
                             disabled={isUpdating}
-                            className={`px-2 py-1.5 text-xs rounded-md border transition-colors ${
-                              newTime === time
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'bg-background/50 border-border/50 hover:border-blue-500 hover:text-blue-600'
-                            }`}
+                            className={`px-2 py-1.5 text-xs rounded-md border transition-colors ${newTime === time
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-background/50 border-border/50 hover:border-blue-500 hover:text-blue-600'
+                              }`}
                           >
                             {time}
                           </button>
@@ -392,17 +417,39 @@ export function AppointmentDetailsModal({
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
                   Actividad Reciente
                 </label>
-                <div className="font-mono text-xs space-y-1 max-h-24 overflow-y-auto">
-                  <div className="text-green-400">
-                    [15:42:31] Cita confirmada
+                {loadingActivity ? (
+                  <div className="text-xs text-muted-foreground text-center py-2">
+                    Cargando actividad...
                   </div>
-                  <div className="text-blue-400">
-                    [15:42:25] Recordatorio enviado al paciente
+                ) : activity.length === 0 ? (
+                  <div className="text-xs text-muted-foreground text-center py-2">
+                    No hay actividad registrada
                   </div>
-                  <div className="text-muted-foreground">
-                    [15:40:05] Contacto desde {appointment.ip}
+                ) : (
+                  <div className="font-mono text-xs space-y-1 max-h-24 overflow-y-auto">
+                    {activity.map((item, index) => {
+                      const time = new Date(item.timestamp).toLocaleTimeString('es-CL', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                      });
+                      const color = item.type === 'status_change'
+                        ? (item.message.includes('CONFIRMADO') ? 'text-green-400' : 'text-blue-400')
+                        : 'text-purple-400';
+
+                      return (
+                        <div key={index} className={color}>
+                          [{time}] {item.message}
+                          {item.changedBy && item.changedBy !== 'admin' && (
+                            <span className="text-muted-foreground ml-1">
+                              ({item.changedBy === 'AGENT_VOICE' ? 'Agente de voz' : item.changedBy})
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </motion.div>

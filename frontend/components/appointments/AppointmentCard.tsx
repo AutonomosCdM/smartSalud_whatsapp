@@ -166,6 +166,7 @@ export function AppointmentCard({
           <div className="col-span-1 flex justify-center">
             <CallButton
               phoneNumber={appointment.ip}
+              appointmentId={appointment.id}
               patientName={appointment.serviceName}
               variant="icon"
             />

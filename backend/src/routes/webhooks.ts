@@ -184,9 +184,28 @@ async function handleTranscriptionWebhook(data: TranscriptionWebhookData): Promi
         ?.map(entry => `[${entry.role.toUpperCase()}]: ${entry.message}`)
         .join('\n');
 
-    // Update call record
+    // Determine contact result based on call outcome
+    const hasUserMessages = transcript?.some(t => t.role === 'user' && t.message.trim().length > 0);
+    const callDuration = metadata?.call_duration_seconds || 0;
+
+    let contactResult: string;
+    if (status === 'done' && hasUserMessages && callDuration > 5) {
+        // Successful conversation with patient
+        contactResult = 'CONTACTED_SUCCESS';
+    } else if (callDuration > 0 && callDuration <= 5) {
+        // Call connected but dropped quickly (agent issue or hangup)
+        contactResult = 'CONTACTED_PARTIAL';
+    } else if (!hasUserMessages && callDuration > 0) {
+        // Possible voicemail
+        contactResult = 'VOICEMAIL_LEFT';
+    } else {
+        contactResult = 'NEEDS_RETRY';
+    }
+
+    // Update call record with new fields
     const updateData: any = {
-        status: status === 'done' ? 'COMPLETED' : call.status,
+        status: status === 'done' ? 'COMPLETED' : (callDuration <= 5 ? 'DISCONNECTED' : call.status),
+        contactResult,
         transcription: formattedTranscript,
         endedAt: new Date(),
     };
@@ -197,6 +216,11 @@ async function handleTranscriptionWebhook(data: TranscriptionWebhookData): Promi
 
     if (analysis?.summary) {
         updateData.summary = analysis.summary;
+    }
+
+    // Track if call dropped immediately (agent config issue)
+    if (callDuration <= 5 && !hasUserMessages) {
+        updateData.failureReason = 'agent_disconnected_early';
     }
 
     await prisma.call.update({
@@ -227,7 +251,7 @@ async function handleTranscriptionWebhook(data: TranscriptionWebhookData): Promi
         }
     }
 
-    console.log(`Call ${call.id} updated with transcription and status: COMPLETED`);
+    console.log(`Call ${call.id} updated - contactResult: ${contactResult}, duration: ${callDuration}s`);
 }
 
 /**
@@ -256,10 +280,17 @@ async function handleCallFailureWebhook(data: CallFailureWebhookData): Promise<v
 
     const newStatus = statusMap[failure_reason] || 'FAILED';
 
+    // Set contact result based on failure type
+    const contactResult = failure_reason === 'busy' || failure_reason === 'no-answer'
+        ? 'NO_CONTACT'
+        : 'NEEDS_RETRY';
+
     await prisma.call.update({
         where: { id: call.id },
         data: {
             status: newStatus as any,
+            contactResult: contactResult as any,
+            failureReason: failure_reason,
             endedAt: new Date(),
             errorMessage: `Call initiation failed: ${failure_reason}`,
             metadata: metadata ? JSON.stringify(metadata) : undefined,
@@ -277,7 +308,327 @@ async function handleCallFailureWebhook(data: CallFailureWebhookData): Promise<v
         });
     }
 
-    console.log(`Call ${call.id} marked as failed: ${failure_reason}`);
+    console.log(`Call ${call.id} marked as failed: ${failure_reason}, contactResult: ${contactResult}`);
 }
+
+// ============================================
+// ELEVENLABS AGENT TOOL WEBHOOKS
+// ============================================
+
+/**
+ * POST /api/webhooks/elevenlabs/tools/change-status
+ * Tool webhook para que el agente cambie el estado de una cita
+ */
+router.post('/elevenlabs/tools/change-status', async (req, res): Promise<void> => {
+    try {
+        console.log('[Tool:changeStatus] Request:', JSON.stringify(req.body));
+
+        const { appointment_id, status } = req.body;
+
+        if (!appointment_id || !status) {
+            res.status(400).json({ error: 'appointment_id and status are required' });
+            return;
+        }
+
+        // Map status from prompt to database enum
+        const statusMap: Record<string, string> = {
+            'confirmado': 'CONFIRMADO',
+            'cancelado': 'CANCELADO',
+            'reagendado': 'REAGENDADO',
+            'contactar': 'CONTACTAR',
+            'CONFIRMADO': 'CONFIRMADO',
+            'CANCELADO': 'CANCELADO',
+            'REAGENDADO': 'REAGENDADO',
+            'CONTACTAR': 'CONTACTAR',
+        };
+
+        const dbStatus = statusMap[status.toLowerCase()] || statusMap[status];
+
+        if (!dbStatus) {
+            res.status(400).json({ error: `Invalid status: ${status}` });
+            return;
+        }
+
+        // Update appointment
+        const appointment = await prisma.appointment.update({
+            where: { id: appointment_id },
+            data: {
+                status: dbStatus as any,
+                statusUpdatedAt: new Date(),
+            },
+            include: { patient: true },
+        });
+
+        // Log the state change
+        await prisma.appointmentStateChange.create({
+            data: {
+                appointmentId: appointment_id,
+                toStatus: dbStatus as any,
+                changedBy: 'AGENT_VOICE',
+                reason: `Estado cambiado por agente de voz a ${dbStatus}`,
+            },
+        });
+
+        console.log(`[Tool:changeStatus] Appointment ${appointment_id} updated to ${dbStatus}`);
+
+        // Return success to agent
+        res.status(200).json({
+            success: true,
+            message: `Cita actualizada a ${dbStatus}`,
+            appointment: {
+                id: appointment.id,
+                status: appointment.status,
+                patient_name: appointment.patient?.name,
+            },
+        });
+    } catch (error) {
+        console.error('[Tool:changeStatus] Error:', error);
+        res.status(500).json({ error: 'Error al actualizar la cita' });
+    }
+});
+
+/**
+ * POST /api/webhooks/elevenlabs/tools/get-available-slots
+ * Tool webhook para obtener horarios disponibles para reagendar
+ */
+router.post('/elevenlabs/tools/get-available-slots', async (req, res): Promise<void> => {
+    try {
+        console.log('[Tool:getAvailableSlots] Request:', JSON.stringify(req.body));
+
+        const { appointment_id } = req.body;
+
+        if (!appointment_id) {
+            res.status(400).json({ error: 'appointment_id is required' });
+            return;
+        }
+
+        // Get the original appointment
+        const originalAppointment = await prisma.appointment.findUnique({
+            where: { id: appointment_id },
+        });
+
+        if (!originalAppointment) {
+            res.status(404).json({ error: 'Appointment not found' });
+            return;
+        }
+
+        // Find slots disponibles (patient with name "SLOT DISPONIBLE")
+        // These are appointments created specifically as available time slots
+        const slotPatient = await prisma.patient.findFirst({
+            where: { name: 'SLOT DISPONIBLE' },
+        });
+
+        if (!slotPatient) {
+            res.status(404).json({
+                error: 'No hay horarios disponibles en este momento',
+                success: false
+            });
+            return;
+        }
+
+        // Get available slots (appointments with SLOT DISPONIBLE patient in AGENDADO status)
+        const now = new Date();
+        const availableSlotAppointments = await prisma.appointment.findMany({
+            where: {
+                patientId: slotPatient.id,
+                status: 'AGENDADO',
+                appointmentDate: { gte: now },
+            },
+            orderBy: { appointmentDate: 'asc' },
+            take: 2, // Return max 2 slots
+        });
+
+        if (availableSlotAppointments.length === 0) {
+            res.status(404).json({
+                error: 'No hay horarios disponibles en este momento',
+                success: false
+            });
+            return;
+        }
+
+        const formatDateForSpeech = (date: Date): string => {
+            const weekday = date.toLocaleDateString('es-CL', { weekday: 'long' });
+            const day = date.getDate();
+            const month = date.toLocaleDateString('es-CL', { month: 'long' });
+            const hour = date.getHours();
+            const period = hour >= 12 ? 'de la tarde' : 'de la mañana';
+            const hour12 = hour > 12 ? hour - 12 : hour;
+            return `${weekday} ${day} de ${month} a las ${hour12} ${period}`;
+        };
+
+        const availableSlots = availableSlotAppointments.map(slot => ({
+            appointment_id: slot.id,
+            date: slot.appointmentDate.toISOString(),
+            formatted: formatDateForSpeech(slot.appointmentDate),
+        }));
+
+        console.log(`[Tool:getAvailableSlots] Found ${availableSlots.length} real slots`);
+
+        const response: any = {
+            success: true,
+            available_slots: availableSlots,
+        };
+
+        // Add individual options for easier prompt access
+        if (availableSlots[0]) response.opcion_1 = availableSlots[0].formatted;
+        if (availableSlots[1]) response.opcion_2 = availableSlots[1].formatted;
+
+        res.status(200).json(response);
+    } catch (error) {
+        console.error('[Tool:getAvailableSlots] Error:', error);
+        res.status(500).json({ error: 'Error al buscar horarios disponibles' });
+    }
+});
+
+/**
+ * POST /api/webhooks/elevenlabs/tools/reschedule
+ * Tool webhook para reagendar una cita usando un slot disponible
+ */
+router.post('/elevenlabs/tools/reschedule', async (req, res): Promise<void> => {
+    try {
+        console.log('[Tool:reschedule] Request:', JSON.stringify(req.body));
+
+        const { appointment_id, slot_appointment_id } = req.body;
+
+        if (!appointment_id || !slot_appointment_id) {
+            res.status(400).json({ error: 'appointment_id and slot_appointment_id are required' });
+            return;
+        }
+
+        // Get original appointment
+        const originalAppointment = await prisma.appointment.findUnique({
+            where: { id: appointment_id },
+            include: { patient: true },
+        });
+
+        if (!originalAppointment) {
+            res.status(404).json({ error: 'Appointment not found' });
+            return;
+        }
+
+        // Get the selected slot
+        const slotAppointment = await prisma.appointment.findUnique({
+            where: { id: slot_appointment_id },
+            include: { patient: true },
+        });
+
+        if (!slotAppointment) {
+            res.status(404).json({ error: 'Slot not found' });
+            return;
+        }
+
+        // Verify this is actually a slot (patient is "SLOT DISPONIBLE")
+        if (slotAppointment.patient.name !== 'SLOT DISPONIBLE') {
+            res.status(400).json({ error: 'Invalid slot - not a SLOT DISPONIBLE appointment' });
+            return;
+        }
+
+        // Use transaction to ensure atomic operation
+        const result = await prisma.$transaction(async (tx) => {
+            // 1. Mark original appointment as REAGENDADO
+            await tx.appointment.update({
+                where: { id: appointment_id },
+                data: {
+                    status: 'REAGENDADO',
+                    statusUpdatedAt: new Date(),
+                },
+            });
+
+            // 2. Update the slot with patient information (convert slot to actual appointment)
+            const updatedSlot = await tx.appointment.update({
+                where: { id: slot_appointment_id },
+                data: {
+                    patientId: originalAppointment.patientId,
+                    specialty: originalAppointment.specialty,
+                    doctorName: originalAppointment.doctorName,
+                    doctorGender: originalAppointment.doctorGender,
+                    status: 'AGENDADO',
+                    rescheduledFromId: originalAppointment.id,
+                },
+                include: { patient: true },
+            });
+
+            // 3. Log the state changes
+            await tx.appointmentStateChange.create({
+                data: {
+                    appointmentId: appointment_id,
+                    fromStatus: originalAppointment.status,
+                    toStatus: 'REAGENDADO',
+                    changedBy: 'AGENT_VOICE',
+                    reason: `Reagendado por agente de voz a: ${updatedSlot.appointmentDate.toISOString()}`,
+                },
+            });
+
+            return updatedSlot;
+        });
+
+        // Format date for response
+        const formatDateForSpeech = (date: Date): string => {
+            const weekday = date.toLocaleDateString('es-CL', { weekday: 'long' });
+            const day = date.getDate();
+            const month = date.toLocaleDateString('es-CL', { month: 'long' });
+            const hour = date.getHours();
+            const period = hour >= 12 ? 'de la tarde' : 'de la mañana';
+            const hour12 = hour > 12 ? hour - 12 : hour;
+            return `${weekday} ${day} de ${month} a las ${hour12} ${period}`;
+        };
+
+        console.log(`[Tool:reschedule] Appointment ${appointment_id} rescheduled to slot ${slot_appointment_id}`);
+
+        res.status(200).json({
+            success: true,
+            message: 'Cita reagendada exitosamente',
+            new_appointment: {
+                id: result.id,
+                date: result.appointmentDate.toISOString(),
+                formatted_date: formatDateForSpeech(result.appointmentDate),
+                patient_name: result.patient.name,
+            },
+            nueva_fecha: formatDateForSpeech(result.appointmentDate),
+        });
+    } catch (error) {
+        console.error('[Tool:reschedule] Error:', error);
+        res.status(500).json({ error: 'Error al reagendar la cita' });
+    }
+});
+
+/**
+ * POST /api/webhooks/elevenlabs/tools/send-message
+ * Tool webhook para enviar mensaje WhatsApp al paciente
+ */
+router.post('/elevenlabs/tools/send-message', async (req, res): Promise<void> => {
+    try {
+        console.log('[Tool:sendMessage] Request:', JSON.stringify(req.body));
+
+        const { patient_id, message, channel } = req.body;
+
+        if (!patient_id || !message) {
+            res.status(400).json({ error: 'patient_id and message are required' });
+            return;
+        }
+
+        // Get patient
+        const patient = await prisma.patient.findUnique({
+            where: { id: patient_id },
+        });
+
+        if (!patient) {
+            res.status(404).json({ error: 'Patient not found' });
+            return;
+        }
+
+        // TODO: Integrate with Twilio to send actual WhatsApp message
+        // For now, just log and return success
+        console.log(`[Tool:sendMessage] Would send to ${patient.phone}: ${message}`);
+
+        res.status(200).json({
+            success: true,
+            message: `Mensaje enviado a ${patient.name} por ${channel || 'WhatsApp'}`,
+        });
+    } catch (error) {
+        console.error('[Tool:sendMessage] Error:', error);
+        res.status(500).json({ error: 'Error al enviar mensaje' });
+    }
+});
 
 export default router;

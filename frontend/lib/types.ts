@@ -27,6 +27,7 @@ export interface Server {
   id: string;
   number: string;
   serviceName: string;
+  patientRut?: string; // RUT del paciente
   serviceNameSubtitle?: string; // Especialidad del paciente
   osType: OSType; // Specialty icons
   serviceLocation: string;
@@ -35,7 +36,8 @@ export interface Server {
   ip: string;
   dueDate: string;
   cpuPercentage: number;
-  status: DisplayStatus; // Appointment status
+  status: string; // Real appointment status (AGENDADO, CONFIRMADO, etc.)
+  displayStatus?: DisplayStatus; // Visual display status (active, paused, inactive)
 }
 
 /**
@@ -92,4 +94,29 @@ export type Gender = "female" | "male";
 export interface SpecialtyTitle {
   male: string;
   female: string;
+}
+
+/**
+ * Calls Dashboard Types
+ */
+
+export interface CallsDashboardStats {
+  todayTotal: number;
+  contactRate: number;
+  queuedCount: number;
+  avgDuration: number;
+  byStatus: { status: string; count: number }[];
+  byResult: { result: string; count: number }[];
+}
+
+export interface UpcomingCall {
+  id: string;
+  patientName: string;
+  patientRut: string;
+  phoneNumber: string;
+  appointmentDate: string;
+  scheduledTime: string;
+  reminderType: "WHATSAPP_72H" | "WHATSAPP_48H" | "WHATSAPP_24H" | "VOICE_CALL" | "HUMAN_CALL";
+  status: string;
+  timeUntilCall: number;
 }

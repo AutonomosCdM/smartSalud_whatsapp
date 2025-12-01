@@ -23,7 +23,7 @@ router.post('/initiate', async (req, res, next): Promise<void> => {
             specialty: z.string().optional(),
         });
 
-        const { phoneNumber, agentId, appointmentId, patientName, appointmentDate, doctorName, specialty } = initiateCallSchema.parse(req.body);
+        const { phoneNumber, agentId, appointmentId, patientName, doctorName, specialty } = initiateCallSchema.parse(req.body);
 
         // Get ElevenLabs credentials from environment
         const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
@@ -71,20 +71,76 @@ router.post('/initiate', async (req, res, next): Promise<void> => {
         }
 
         // Build dynamic variables for ElevenLabs agent
-        const dynamicVariables: Record<string, string> = {
-            patient_name: patientName || patient?.name || 'Paciente',
-            appointment_date: appointmentDate || (appointment?.appointmentDate
-                ? new Date(appointment.appointmentDate).toLocaleDateString('es-CL', {
-                    weekday: 'long',
-                    day: 'numeric',
-                    month: 'long',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })
-                : 'su próxima cita'),
-            doctor_name: doctorName || appointment?.doctorName || 'su médico',
-            specialty: specialty || appointment?.specialty || 'consulta médica',
+        // Must match the variables expected by the agent prompt: {{patient_name}}, {{appointment_date}}, etc.
+        const appointmentDateTime = appointment?.appointmentDate ? new Date(appointment.appointmentDate) : null;
+
+        // Format date and time in Spanish for NATURAL SPEECH (TTS-friendly)
+        let formattedDate = 'su próxima cita';
+        let formattedTime = '';
+
+        if (appointmentDateTime) {
+            // Format: "viernes 28 de noviembre"
+            formattedDate = appointmentDateTime.toLocaleDateString('es-CL', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long'
+            });
+
+            // Format time for natural speech: "9 de la mañana", "3 y media de la tarde"
+            const hours = appointmentDateTime.getHours();
+            const minutes = appointmentDateTime.getMinutes();
+            const hour12 = hours > 12 ? hours - 12 : hours === 0 ? 12 : hours;
+            const period = hours >= 12 ? 'de la tarde' : 'de la mañana';
+
+            if (minutes === 0) {
+                formattedTime = `${hour12} ${period}`;
+            } else if (minutes === 30) {
+                formattedTime = `${hour12} y media ${period}`;
+            } else if (minutes === 15) {
+                formattedTime = `${hour12} y cuarto ${period}`;
+            } else if (minutes === 45) {
+                formattedTime = `${hour12} y cuarenta y cinco ${period}`;
+            } else {
+                formattedTime = `${hour12} y ${minutes} ${period}`;
+            }
+        }
+
+        // Expand abbreviations for TTS (DRA. → Doctora, DR. → Doctor, etc.)
+        const expandAbbreviations = (name: string): string => {
+            return name
+                .replace(/^DRA\.\s*/i, 'Doctora ')
+                .replace(/^DR\.\s*/i, 'Doctor ')
+                .replace(/^SRA\.\s*/i, 'Señora ')
+                .replace(/^SR\.\s*/i, 'Señor ')
+                .replace(/^SRTA\.\s*/i, 'Señorita ')
+                .replace(/^LIC\.\s*/i, 'Licenciado ')
+                .replace(/^PROF\.\s*/i, 'Profesor ')
+                .replace(/^ING\.\s*/i, 'Ingeniero ')
+                .trim();
         };
+
+        const rawProfessionalName = doctorName || appointment?.doctorName || 'su profesional de salud';
+        const professionalName = expandAbbreviations(rawProfessionalName);
+
+        const dynamicVariables: Record<string, string> = {
+            // Patient info
+            patient_name: patientName || patient?.name || 'Paciente',
+            patient_id: patient?.id || '',
+
+            // Appointment date/time - split for agent prompt
+            appointment_date: formattedDate,
+            appointment_time: formattedTime,
+
+            // Professional info - expanded for natural speech
+            professional_name: professionalName,
+            doctor_name: professionalName,
+            specialty: specialty || appointment?.specialty || 'consulta médica',
+
+            // IDs for webhook actions
+            appointment_id: appointmentId || '',
+        };
+
+        console.log('[Calls] Dynamic variables for ElevenLabs:', JSON.stringify(dynamicVariables, null, 2));
 
         // Call ElevenLabs API to initiate conversation
         // Official endpoint: https://elevenlabs.io/docs/api-reference/conversational-ai
@@ -101,8 +157,6 @@ router.post('/initiate', async (req, res, next): Promise<void> => {
                 // Dynamic variables for personalization
                 conversation_initiation_client_data: {
                     dynamic_variables: dynamicVariables,
-                    user_id: patient?.id,
-                    source_info: 'smartsalud_single_call',
                 },
             }),
         });
@@ -421,6 +475,146 @@ router.get('/metrics', async (_req, res, next): Promise<void> => {
                 },
                 trends: dailyTrends
             }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET /api/calls/dashboard-stats - Dashboard KPIs
+router.get('/dashboard-stats', async (_req, res, next): Promise<void> => {
+    try {
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        const [
+            todayCalls,
+            contactedSuccess,
+            queuedCalls,
+            avgDurationResult,
+            byStatus,
+            byResult,
+        ] = await Promise.all([
+            // Today's total calls
+            prisma.call.count({
+                where: { initiatedAt: { gte: startOfDay } },
+            }),
+            // Contact success count
+            prisma.call.count({
+                where: {
+                    initiatedAt: { gte: startOfDay },
+                    contactResult: 'CONTACTED_SUCCESS',
+                },
+            }),
+            // Queued/initiated calls
+            prisma.call.count({
+                where: { status: 'INITIATED' },
+            }),
+            // Average duration
+            prisma.call.aggregate({
+                _avg: { durationSeconds: true },
+                where: {
+                    status: 'COMPLETED',
+                    durationSeconds: { not: null },
+                },
+            }),
+            // By call status
+            prisma.call.groupBy({
+                by: ['status'],
+                _count: { id: true },
+                where: { initiatedAt: { gte: startOfDay } },
+            }),
+            // By contact result
+            prisma.call.groupBy({
+                by: ['contactResult'],
+                _count: { id: true },
+                where: { initiatedAt: { gte: startOfDay } },
+            }),
+        ]);
+
+        const contactRate = todayCalls > 0 ? (contactedSuccess / todayCalls) * 100 : 0;
+
+        res.status(200).json({
+            success: true,
+            stats: {
+                todayTotal: todayCalls,
+                contactRate: Math.round(contactRate * 10) / 10,
+                queuedCount: queuedCalls,
+                avgDuration: Math.round(avgDurationResult._avg.durationSeconds || 0),
+                byStatus: byStatus.map(item => ({
+                    status: item.status,
+                    count: item._count.id,
+                })),
+                byResult: byResult.map(item => ({
+                    result: item.contactResult,
+                    count: item._count.id,
+                })),
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET /api/calls/upcoming - Upcoming scheduled calls
+router.get('/upcoming', async (req, res, next): Promise<void> => {
+    try {
+        const limit = parseInt(req.query.limit as string) || 10;
+        const now = new Date();
+
+        // Get appointments with pending voice calls scheduled for today/future
+        const appointments = await prisma.appointment.findMany({
+            where: {
+                appointmentDate: { gte: now },
+                OR: [
+                    { status: 'PENDIENTE_LLAMADA' },
+                    { voiceCallAttempted: false },
+                ],
+            },
+            include: {
+                patient: {
+                    select: {
+                        id: true,
+                        name: true,
+                        rut: true,
+                        phone: true,
+                    },
+                },
+                reminders: {
+                    where: {
+                        type: { in: ['VOICE_CALL', 'HUMAN_CALL'] },
+                    },
+                    orderBy: { sentAt: 'desc' },
+                    take: 1,
+                },
+            },
+            orderBy: {
+                appointmentDate: 'asc',
+            },
+            take: limit,
+        });
+
+        const upcoming = appointments.map(apt => {
+            const scheduledTime = apt.voiceCallAttemptedAt || apt.appointmentDate;
+            const timeUntilCall = scheduledTime.getTime() - now.getTime();
+            const reminderType = apt.reminders[0]?.type || 'VOICE_CALL';
+
+            return {
+                id: apt.id,
+                patientName: apt.patient.name,
+                patientRut: apt.patient.rut,
+                phoneNumber: apt.patient.phone,
+                appointmentDate: apt.appointmentDate.toISOString(),
+                scheduledTime: scheduledTime.toISOString(),
+                reminderType,
+                status: apt.status,
+                timeUntilCall: Math.max(0, timeUntilCall),
+            };
+        });
+
+        res.status(200).json({
+            success: true,
+            data: upcoming,
         });
     } catch (error) {
         next(error);

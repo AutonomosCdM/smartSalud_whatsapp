@@ -20,6 +20,7 @@ interface ServerManagementContainerProps {
   title?: string;
   servers?: Server[];
   className?: string;
+  onRefresh?: () => void;
 }
 
 /**
@@ -33,9 +34,10 @@ interface ServerManagementContainerProps {
  * Single Responsibility: State orchestration and child coordination
  */
 export function ServerManagementContainer({
-  title = "Active Services",
+  title = "Servicios Activos",
   servers: initialServers = [],
   className = "",
+  onRefresh,
 }: ServerManagementContainerProps) {
   // State management - ALL state lives here
   const [servers, setServers] = useState<Server[]>(initialServers);
@@ -48,6 +50,7 @@ export function ServerManagementContainer({
   const [filters, setFilters] = useState<FilterConfig>({
     doctor: null,
     specialty: null,
+    status: null,
     dateFrom: null,
     dateTo: null,
   });
@@ -72,6 +75,11 @@ export function ServerManagementContainer({
       filtered = filtered.filter(
         (s) => s.serviceNameSubtitle === filters.specialty
       );
+    }
+
+    // Filter by status
+    if (filters.status) {
+      filtered = filtered.filter((s) => s.status === filters.status);
     }
 
     // Filter by date range
@@ -109,10 +117,12 @@ export function ServerManagementContainer({
     setTimeout(() => setSelectedServerId(null), 200);
   };
 
-  // Refresh handler (for EmptyStateView)
+  // Refresh handler (for EmptyStateView and status updates)
   const handleRefresh = () => {
-    // Trigger data refresh if needed
     console.log("[ServerManagementContainer] Refresh requested");
+    if (onRefresh) {
+      onRefresh();
+    }
   };
 
   // Sort handler - toggle sort field and order
@@ -158,8 +168,8 @@ export function ServerManagementContainer({
               <h1 className="text-xl font-medium text-foreground">{title}</h1>
             </div>
             <div className="text-sm text-muted-foreground">
-              {servers.filter((s) => s.status === "active").length} Active •{" "}
-              {servers.filter((s) => s.status === "inactive").length} Inactive
+              {servers.filter((s) => s.status === "CONFIRMADO").length} Activos •{" "}
+              {servers.filter((s) => s.status === "CANCELADO" || s.status === "NO_SHOW").length} Inactivos
             </div>
           </div>
         </div>
@@ -190,6 +200,7 @@ export function ServerManagementContainer({
                 setFilters({
                   doctor: null,
                   specialty: null,
+                  status: null,
                   dateFrom: null,
                   dateTo: null,
                 })
@@ -239,6 +250,7 @@ export function ServerManagementContainer({
           appointment={selectedServer}
           isOpen={detailsOpen}
           onClose={handleCloseDetails}
+          onStatusUpdate={handleRefresh}
         />
       </div>
     </div>

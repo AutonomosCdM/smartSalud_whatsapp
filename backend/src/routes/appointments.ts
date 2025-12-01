@@ -100,13 +100,21 @@ router.post('/', async (req, res, next) => {
 // GET /api/appointments
 router.get('/', async (req, res, next) => {
   try {
-    const { status, startDate, endDate, page = '1', limit = '20' } = req.query;
+    const { status, startDate, endDate, page = '1', limit = '20', includeRescheduled = 'false' } = req.query;
 
     const where: any = {};
 
     if (status) {
       where.status = status;
+    } else if (includeRescheduled !== 'true') {
+      // Por defecto, excluir citas REAGENDADO (ya fueron movidas a otra fecha)
+      where.status = { not: 'REAGENDADO' };
     }
+
+    // SIEMPRE excluir slots disponibles (no son pacientes reales)
+    where.patient = {
+      name: { not: 'SLOT DISPONIBLE' }
+    };
 
     if (startDate || endDate) {
       where.appointmentDate = {};
@@ -128,10 +136,26 @@ router.get('/', async (req, res, next) => {
 
     const total = await prisma.appointment.count({ where });
 
-    // Transform to v4 Server interface format
+    // Check for raw format request
+    if (req.query.format === 'raw') {
+      res.json({
+        success: true,
+        data: appointments,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          pages: Math.ceil(total / limitNum),
+        },
+      });
+      return;
+    }
+
+    // Transform to v4 Server interface format (Legacy support)
     const transformedData = transformAppointments(appointments);
 
     res.json({
+      success: true,
       data: transformedData,
       pagination: {
         page: pageNum,
@@ -165,14 +189,56 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
+// GET /api/appointments/:id/activity - Get appointment activity history
+router.get('/:id/activity', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // Get state changes
+    const stateChanges = await prisma.appointmentStateChange.findMany({
+      where: { appointmentId: id },
+      orderBy: { changedAt: 'desc' },
+      take: 10,
+    });
+
+    // Get call logs (if any)
+    const callLogs = await prisma.call.findMany({
+      where: { appointmentId: id },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+
+    // Combine and format activity
+    const activity = [
+      ...stateChanges.map(change => ({
+        timestamp: change.changedAt,
+        type: 'status_change' as const,
+        message: `${change.fromStatus || 'N/A'} → ${change.toStatus}`,
+        details: change.reason || undefined,
+        changedBy: change.changedBy,
+      })),
+      ...callLogs.map(call => ({
+        timestamp: call.createdAt,
+        type: 'call' as const,
+        message: call.status === 'COMPLETED' ? 'Llamada completada' : 'Llamada iniciada',
+        details: call.conversationId || undefined,
+      })),
+    ].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+    res.json({ success: true, activity });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 // PATCH /api/appointments/:id
 router.patch('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, appointmentDate } = req.body;
 
-    // Validate status
-    const validStatuses = ['AGENDADO', 'CONFIRMADO', 'REAGENDADO', 'CANCELADO', 'PENDIENTE_LLAMADA', 'NO_SHOW'];
+    // Validate status (all AppointmentStatus enum values)
+    const validStatuses = ['AGENDADO', 'CONFIRMADO', 'REAGENDADO', 'CANCELADO', 'PENDIENTE_LLAMADA', 'NO_SHOW', 'CONTACTAR'];
     if (status && !validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
@@ -183,27 +249,83 @@ router.patch('/:id', async (req, res, next) => {
       return res.status(404).json({ error: 'Appointment not found' });
     }
 
-    // Validate state transitions (basic)
-    const invalidTransitions: Record<string, string[]> = {
-      CONFIRMADO: ['AGENDADO'], // Cannot go from CONFIRMADO back to AGENDADO
-      CANCELADO: ['CONFIRMADO', 'REAGENDADO'], // Cannot confirm/reschedule after cancel
-      NO_SHOW: ['CONFIRMADO', 'REAGENDADO'], // Cannot confirm/reschedule after no-show
+    // Sin restricciones de transición - cualquier estado puede cambiar a cualquier otro
+    // El admin tiene control total sobre el estado de las citas
+
+    // Prepare update data
+    const updateData: any = {
+      statusUpdatedAt: new Date(),
     };
 
-    if (status && appointment.status && invalidTransitions[appointment.status]?.includes(status)) {
-      return res.status(400).json({ error: `Cannot transition from ${appointment.status} to ${status}` });
+    if (status) {
+      updateData.status = status;
     }
 
-    const updated = await prisma.appointment.update({
-      where: { id },
-      data: {
-        status,
-        statusUpdatedAt: new Date(),
-      },
-      include: { patient: true },
+    // If appointmentDate is provided, validate and update
+    if (appointmentDate) {
+      const newDate = new Date(appointmentDate);
+
+      // Validate date is valid
+      if (isNaN(newDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid appointment date format' });
+      }
+
+      // Validate date is in future
+      if (newDate <= new Date()) {
+        return res.status(400).json({ error: 'Appointment date must be in the future' });
+      }
+
+      updateData.appointmentDate = newDate;
+    }
+
+    // Use transaction to update appointment and create audit log atomically
+    const result = await prisma.$transaction(async (tx) => {
+      // Update the appointment
+      const updated = await tx.appointment.update({
+        where: { id },
+        data: updateData,
+        include: { patient: true },
+      });
+
+      // Create audit trail entry if status changed
+      if (status && status !== appointment.status) {
+        await tx.appointmentStateChange.create({
+          data: {
+            appointmentId: id,
+            fromStatus: appointment.status,
+            toStatus: status,
+            changedBy: 'admin', // TODO: Get from auth context when implemented
+            reason: appointmentDate ? `Reagendado a ${new Date(appointmentDate).toLocaleDateString('es-CL')}` : null,
+          },
+        });
+      }
+
+      // Reschedule reminders if date changed (for REAGENDADO)
+      if (appointmentDate && status === 'REAGENDADO') {
+        // Reset reminder flags
+        await tx.appointment.update({
+          where: { id },
+          data: {
+            reminder72hSent: false,
+            reminder72hSentAt: null,
+            reminder48hSent: false,
+            reminder48hSentAt: null,
+            reminder24hSent: false,
+            reminder24hSentAt: null,
+            voiceCallAttempted: false,
+            voiceCallAttemptedAt: null,
+            needsHumanCall: false,
+          },
+        });
+
+        // Schedule new reminders (async, don't block transaction)
+        scheduleReminders(id, new Date(appointmentDate)).catch(console.error);
+      }
+
+      return updated;
     });
 
-    res.json(updated);
+    res.json(result);
   } catch (error) {
     return next(error);
   }

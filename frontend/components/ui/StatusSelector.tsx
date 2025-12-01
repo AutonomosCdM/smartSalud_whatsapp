@@ -59,10 +59,9 @@ const ALL_STATUSES: AppointmentStatus[] = [
 
 export function StatusSelector({
     currentStatus,
-    appointmentId,
     onStatusChange,
     disabled = false,
-}: StatusSelectorProps) {
+}: Omit<StatusSelectorProps, 'appointmentId'>) {
     const [isOpen, setIsOpen] = useState(false);
 
     const status = currentStatus as AppointmentStatus;

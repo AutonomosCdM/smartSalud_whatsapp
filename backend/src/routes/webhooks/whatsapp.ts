@@ -1,108 +1,446 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import twilio from 'twilio';
-import { detectIntent } from '../../services/groqService';
 
 const router = Router();
 const prisma = new PrismaClient();
 
+// Validar firma de Twilio
 const validateTwilioSignature = (req: any, res: any, next: any) => {
   const signature = req.headers['x-twilio-signature'];
   const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
   const params = req.body;
-
   const authToken = process.env.TWILIO_AUTH_TOKEN || '';
 
+  // Skip validation in development (ngrok URL mismatch causes signature failure)
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[WhatsApp] Skipping signature validation in development');
+    return next();
+  }
+
   if (!twilio.validateRequest(authToken, signature, url, params)) {
+    console.error('[WhatsApp] Invalid Twilio signature');
     return res.status(401).json({ error: 'Invalid Twilio signature' });
   }
 
   next();
 };
 
+// Formatear fecha para mensaje
+function formatDateForMessage(date: Date): string {
+  const weekday = date.toLocaleDateString('es-CL', { weekday: 'long' });
+  const day = date.getDate();
+  const month = date.toLocaleDateString('es-CL', { month: 'long' });
+  const hour = date.getHours();
+  const minutes = date.getMinutes();
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const hour12 = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+  const minutesStr = minutes > 0 ? `:${minutes.toString().padStart(2, '0')}` : ':00';
+
+  return `${weekday} ${day} de ${month} a las ${hour12}${minutesStr} ${period}`;
+}
+
+// Obtener slots disponibles
+async function getAvailableSlots(specialty?: string | null) {
+  const slotPatient = await prisma.patient.findFirst({
+    where: { name: 'SLOT DISPONIBLE' }
+  });
+
+  if (!slotPatient) return [];
+
+  const now = new Date();
+  return prisma.appointment.findMany({
+    where: {
+      patientId: slotPatient.id,
+      status: 'AGENDADO',
+      appointmentDate: { gte: now },
+      ...(specialty && { specialty })
+    },
+    orderBy: { appointmentDate: 'asc' },
+    take: 2
+  });
+}
+
+// Normalizar teléfono (asegurar formato +56XXXXXXXXX)
+function normalizePhone(rawPhone: string): string {
+  // Remover prefijo whatsapp: y espacios
+  let phone = rawPhone.replace('whatsapp:', '').trim();
+
+  // Asegurar que empiece con +
+  if (!phone.startsWith('+')) {
+    phone = '+' + phone;
+  }
+
+  return phone;
+}
+
+// Webhook principal
 router.post('/', validateTwilioSignature, async (req, res) => {
   try {
     const { From, Body } = req.body;
+    const phone = normalizePhone(From);
+    const message = Body.trim().toLowerCase();
 
-    // Extract phone number (remove whatsapp: prefix)
-    const phone = From.replace('whatsapp:', '');
+    console.log(`[WhatsApp] Mensaje de ${phone}: "${Body}"`);
 
-    // Detect intent
-    const intent = await detectIntent(Body);
+    // Buscar paciente por teléfono
+    const patient = await prisma.patient.findFirst({ where: { phone } });
 
-    // Store conversation
-    await prisma.conversation.create({
-      data: {
-        phone,
-        step: 'INTENT_DETECTED',
-        conversationData: {
-          messageHistory: [{
-            role: 'user',
-            content: Body,
-            timestamp: new Date().toISOString(),
-          }],
-          detectedIntent: intent,
-        },
-      },
-    });
-
-    // Handle intents
-    let response = '¡Gracias por tu mensaje! 🏥';
-
-    if (intent === 'CONFIRM' || Body.toLowerCase().includes('sí') || Body.toLowerCase().includes('si')) {
-      // Find appointment by phone
-      const patient = await prisma.patient.findFirst({ where: { phone } });
-      if (patient) {
-        const appointment = await prisma.appointment.findFirst({
-          where: {
-            patientId: patient.id,
-            status: 'AGENDADO',
-          },
-          orderBy: { appointmentDate: 'asc' },
-        });
-
-        if (appointment) {
-          await prisma.appointment.update({
-            where: { id: appointment.id },
-            data: { status: 'CONFIRMADO', statusUpdatedAt: new Date() },
-          });
-          response = '✅ Tu cita ha sido confirmada. ¡Nos vemos pronto!';
-        }
-      }
-    } else if (intent === 'CANCEL' || Body.toLowerCase().includes('no') || Body.toLowerCase().includes('cancelar')) {
-      const patient = await prisma.patient.findFirst({ where: { phone } });
-      if (patient) {
-        const appointment = await prisma.appointment.findFirst({
-          where: {
-            patientId: patient.id,
-            status: 'AGENDADO',
-          },
-          orderBy: { appointmentDate: 'asc' },
-        });
-
-        if (appointment) {
-          await prisma.appointment.update({
-            where: { id: appointment.id },
-            data: { status: 'CANCELADO', statusUpdatedAt: new Date() },
-          });
-          response = '❌ Tu cita ha sido cancelada.';
-        }
-      }
+    if (!patient) {
+      console.log(`[WhatsApp] Paciente no encontrado: ${phone}`);
+      return sendResponse(res, 'No encontramos tu número en nuestro sistema. Por favor contacta al CESFAM.');
     }
 
-    // Return TwiML
-    const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message(response);
+    // Buscar conversación activa
+    let conversation = await prisma.conversation.findFirst({
+      where: {
+        phone,
+        step: { not: 'COMPLETED' }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
 
-    res.type('text/xml');
-    res.send(twiml.toString());
+    // Buscar cita pendiente
+    const appointment = await prisma.appointment.findFirst({
+      where: {
+        patientId: patient.id,
+        status: 'AGENDADO'
+      },
+      orderBy: { appointmentDate: 'asc' }
+    });
+
+    // Si no hay conversación activa, manejar respuesta inicial
+    if (!conversation) {
+      if (!appointment) {
+        return sendResponse(res, 'No tienes citas pendientes. Si necesitas agendar una cita, contacta al CESFAM.');
+      }
+
+      // Respuesta inicial: SI, NO, CANCELAR
+      return await handleInitialResponse(res, message, patient, appointment);
+    }
+
+    // Si hay conversación esperando selección de slot
+    if (conversation.step === 'WAITING_RUT') {
+      // En realidad usamos este estado para esperar selección de slot
+      return await handleSlotSelection(res, message, patient, appointment, conversation);
+    }
+
+    // Fallback: manejar como respuesta inicial
+    if (appointment) {
+      return await handleInitialResponse(res, message, patient, appointment);
+    }
+
+    return sendResponse(res, 'No entendí tu mensaje. Responde SI para confirmar, NO para reagendar, o CANCELAR.');
+
   } catch (error) {
-    console.error('WhatsApp webhook error:', error);
-    // Return 200 even on error (Twilio retries otherwise)
-    const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message('Lo sentimos, ocurrió un error. Intenta nuevamente.');
-    res.type('text/xml');
-    res.send(twiml.toString());
+    console.error('[WhatsApp] Error:', error);
+    return sendResponse(res, 'Ocurrió un error. Por favor intenta nuevamente o contacta al CESFAM.');
+  }
+});
+
+// Manejar respuesta inicial (SI/NO/CANCELAR)
+async function handleInitialResponse(
+  res: any,
+  message: string,
+  patient: any,
+  appointment: any
+) {
+  const appointmentDate = formatDateForMessage(new Date(appointment.appointmentDate));
+
+  // SI - Confirmar cita
+  if (message === 'si' || message === 'sí' || message === '1' || message.includes('confirmo') || message.includes('confirmar')) {
+    await prisma.appointment.update({
+      where: { id: appointment.id },
+      data: {
+        status: 'CONFIRMADO',
+        statusUpdatedAt: new Date()
+      }
+    });
+
+    await logStateChange(appointment.id, 'AGENDADO', 'CONFIRMADO', 'WHATSAPP', 'Confirmado por paciente vía WhatsApp');
+
+    console.log(`[WhatsApp] Cita ${appointment.id} CONFIRMADA`);
+
+    return sendResponse(res,
+      `✅ *Cita Confirmada*\n\n` +
+      `Paciente: ${patient.name}\n` +
+      `Fecha: ${appointmentDate}\n` +
+      `Especialidad: ${appointment.specialty || 'Consulta'}\n\n` +
+      `¡Te esperamos! Recuerda llegar 15 minutos antes.`
+    );
+  }
+
+  // CANCELAR - Cancelar cita
+  if (message === 'cancelar' || message === 'cancelo' || message.includes('cancelar')) {
+    await prisma.appointment.update({
+      where: { id: appointment.id },
+      data: {
+        status: 'CANCELADO',
+        statusUpdatedAt: new Date()
+      }
+    });
+
+    await logStateChange(appointment.id, 'AGENDADO', 'CANCELADO', 'WHATSAPP', 'Cancelado por paciente vía WhatsApp');
+
+    console.log(`[WhatsApp] Cita ${appointment.id} CANCELADA`);
+
+    return sendResponse(res,
+      `❌ *Cita Cancelada*\n\n` +
+      `Tu cita del ${appointmentDate} ha sido cancelada.\n\n` +
+      `Si necesitas reagendar, contacta al CESFAM.`
+    );
+  }
+
+  // NO - Mostrar alternativas para reagendar
+  if (message === 'no' || message === '2' || message.includes('reagendar') || message.includes('cambiar')) {
+    const slots = await getAvailableSlots(appointment.specialty);
+
+    if (slots.length === 0) {
+      return sendResponse(res,
+        `No hay horarios disponibles en este momento.\n\n` +
+        `Por favor contacta al CESFAM para reagendar tu cita.\n` +
+        `📞 Teléfono: (2) 2XXX XXXX`
+      );
+    }
+
+    // Crear conversación esperando selección
+    await prisma.conversation.create({
+      data: {
+        phone: patient.phone,
+        patientId: patient.id,
+        step: 'WAITING_RUT', // Usamos este estado para esperar slot
+        conversationData: {
+          appointmentId: appointment.id,
+          availableSlots: slots.map(s => ({ id: s.id, date: s.appointmentDate }))
+        }
+      }
+    });
+
+    const slot1Date = formatDateForMessage(new Date(slots[0].appointmentDate));
+    const slot2Date = slots[1] ? formatDateForMessage(new Date(slots[1].appointmentDate)) : null;
+
+    let responseMsg = `📅 *Horarios Disponibles*\n\n`;
+    responseMsg += `*1.* ${slot1Date}\n`;
+    if (slot2Date) {
+      responseMsg += `*2.* ${slot2Date}\n`;
+    }
+    responseMsg += `\nResponde *1* o *2* para seleccionar, o *CANCELAR* para cancelar tu cita.`;
+
+    console.log(`[WhatsApp] Mostrando ${slots.length} slots a ${patient.name}`);
+
+    return sendResponse(res, responseMsg);
+  }
+
+  // No entendido - mostrar opciones
+  return sendResponse(res,
+    `Hola ${patient.name.split(' ')[0]}! 👋\n\n` +
+    `Tienes una cita agendada:\n` +
+    `📅 ${appointmentDate}\n` +
+    `🏥 ${appointment.specialty || 'Consulta'}\n\n` +
+    `Responde:\n` +
+    `• *SI* para confirmar\n` +
+    `• *NO* para reagendar\n` +
+    `• *CANCELAR* para cancelar`
+  );
+}
+
+// Manejar selección de slot
+async function handleSlotSelection(
+  res: any,
+  message: string,
+  patient: any,
+  appointment: any,
+  conversation: any
+) {
+  const convData = conversation.conversationData as any;
+  const slots = convData?.availableSlots || [];
+
+  // CANCELAR durante selección
+  if (message === 'cancelar' || message.includes('cancelar')) {
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { step: 'COMPLETED' }
+    });
+
+    if (appointment) {
+      await prisma.appointment.update({
+        where: { id: appointment.id },
+        data: {
+          status: 'CANCELADO',
+          statusUpdatedAt: new Date()
+        }
+      });
+
+      await logStateChange(appointment.id, 'AGENDADO', 'CANCELADO', 'WHATSAPP', 'Cancelado por paciente vía WhatsApp');
+    }
+
+    return sendResponse(res, `❌ Tu cita ha sido cancelada.`);
+  }
+
+  // Selección de slot
+  const selection = parseInt(message);
+
+  if ((selection === 1 || selection === 2) && slots[selection - 1]) {
+    const selectedSlot = slots[selection - 1];
+
+    // Obtener el slot real de la base de datos
+    const slotAppointment = await prisma.appointment.findUnique({
+      where: { id: selectedSlot.id }
+    });
+
+    if (!slotAppointment || slotAppointment.status !== 'AGENDADO') {
+      return sendResponse(res, 'Este horario ya no está disponible. Por favor contacta al CESFAM.');
+    }
+
+    // Realizar reagendamiento en transacción
+    await prisma.$transaction(async (tx) => {
+      // Marcar cita original como REAGENDADO
+      if (appointment) {
+        await tx.appointment.update({
+          where: { id: appointment.id },
+          data: {
+            status: 'REAGENDADO',
+            statusUpdatedAt: new Date()
+          }
+        });
+      }
+
+      // Asignar slot al paciente
+      await tx.appointment.update({
+        where: { id: selectedSlot.id },
+        data: {
+          patientId: patient.id,
+          specialty: appointment?.specialty,
+          doctorName: appointment?.doctorName,
+          rescheduledFromId: appointment?.id
+        }
+      });
+
+      // Completar conversación
+      await tx.conversation.update({
+        where: { id: conversation.id },
+        data: { step: 'COMPLETED' }
+      });
+    });
+
+    await logStateChange(
+      appointment?.id || selectedSlot.id,
+      'AGENDADO',
+      'REAGENDADO',
+      'WHATSAPP',
+      `Reagendado por paciente vía WhatsApp a ${selectedSlot.date}`
+    );
+
+    const newDate = formatDateForMessage(new Date(selectedSlot.date));
+
+    console.log(`[WhatsApp] Cita reagendada para ${patient.name}: ${newDate}`);
+
+    return sendResponse(res,
+      `✅ *Cita Reagendada*\n\n` +
+      `Tu nueva cita:\n` +
+      `📅 ${newDate}\n` +
+      `🏥 ${appointment?.specialty || 'Consulta'}\n\n` +
+      `¡Te esperamos! Recuerda llegar 15 minutos antes.`
+    );
+  }
+
+  // Opción inválida
+  return sendResponse(res,
+    `Por favor responde:\n` +
+    `• *1* para el primer horario\n` +
+    `• *2* para el segundo horario\n` +
+    `• *CANCELAR* para cancelar tu cita`
+  );
+}
+
+// Registrar cambio de estado
+async function logStateChange(
+  appointmentId: string,
+  fromStatus: string,
+  toStatus: string,
+  changedBy: string,
+  reason: string
+) {
+  try {
+    await prisma.appointmentStateChange.create({
+      data: {
+        appointmentId,
+        fromStatus: fromStatus as any,
+        toStatus: toStatus as any,
+        changedBy,
+        reason
+      }
+    });
+  } catch (error) {
+    console.error('[WhatsApp] Error logging state change:', error);
+  }
+}
+
+// Enviar respuesta TwiML
+function sendResponse(res: any, message: string) {
+  const twiml = new twilio.twiml.MessagingResponse();
+  twiml.message(message);
+  res.type('text/xml');
+  res.send(twiml.toString());
+}
+
+// Endpoint para enviar mensaje inicial (usado por el sistema)
+router.post('/send-reminder', async (req, res): Promise<void> => {
+  try {
+    const { appointmentId } = req.body;
+
+    if (!appointmentId) {
+      res.status(400).json({ error: 'appointmentId requerido' });
+      return;
+    }
+
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: { patient: true }
+    });
+
+    if (!appointment || !appointment.patient) {
+      res.status(404).json({ error: 'Cita no encontrada' });
+      return;
+    }
+
+    const appointmentDate = formatDateForMessage(new Date(appointment.appointmentDate));
+
+    const message =
+      `🏥 *Recordatorio de Cita - CESFAM*\n\n` +
+      `Hola ${appointment.patient.name.split(' ')[0]}!\n\n` +
+      `Tienes una cita agendada:\n` +
+      `📅 ${appointmentDate}\n` +
+      `👨‍⚕️ ${appointment.doctorName || 'Profesional de salud'}\n` +
+      `🏥 ${appointment.specialty || 'Consulta'}\n\n` +
+      `Responde:\n` +
+      `• *SI* para confirmar\n` +
+      `• *NO* para reagendar\n` +
+      `• *CANCELAR* para cancelar`;
+
+    // Enviar vía Twilio
+    const twilioClient = twilio(
+      process.env.TWILIO_ACCOUNT_SID,
+      process.env.TWILIO_AUTH_TOKEN
+    );
+
+    const result = await twilioClient.messages.create({
+      from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+      to: `whatsapp:${appointment.patient.phone}`,
+      body: message
+    });
+
+    console.log(`[WhatsApp] Recordatorio enviado a ${appointment.patient.phone}: ${result.sid}`);
+
+    res.json({
+      success: true,
+      messageSid: result.sid,
+      phone: appointment.patient.phone
+    });
+
+  } catch (error: any) {
+    console.error('[WhatsApp] Error enviando recordatorio:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

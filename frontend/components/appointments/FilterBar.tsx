@@ -12,6 +12,7 @@ import { MiniCalendar } from "@/components/ui/MiniCalendar";
 export interface FilterConfig {
   doctor: string | null;
   specialty: string | null;
+  status: string | null;
   dateFrom: string | null;
   dateTo: string | null;
 }
@@ -44,13 +45,14 @@ export function FilterBar({ servers, filters, onFilterChange }: FilterBarProps) 
 
   // Check if any filters are active
   const hasActiveFilters =
-    filters.doctor || filters.specialty || filters.dateFrom || filters.dateTo;
+    filters.doctor || filters.specialty || filters.status || filters.dateFrom || filters.dateTo;
 
   // Clear all filters
   const handleClearAll = () => {
     onFilterChange({
       doctor: null,
       specialty: null,
+      status: null,
       dateFrom: null,
       dateTo: null,
     });
@@ -109,6 +111,30 @@ export function FilterBar({ servers, filters, onFilterChange }: FilterBarProps) 
           </select>
         </div>
 
+        {/* Status Filter */}
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-muted-foreground">Estado:</label>
+          <select
+            value={filters.status || ""}
+            onChange={(e) =>
+              onFilterChange({
+                ...filters,
+                status: e.target.value || null,
+              })
+            }
+            className="px-3 py-1.5 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+          >
+            <option value="">Todos</option>
+            <option value="AGENDADO">Agendado</option>
+            <option value="CONFIRMADO">Confirmado</option>
+            <option value="REAGENDADO">Reagendado</option>
+            <option value="CANCELADO">Cancelado</option>
+            <option value="PENDIENTE_LLAMADA">Pendiente Llamada</option>
+            <option value="NO_SHOW">No Asistió</option>
+            <option value="CONTACTAR">Contactar</option>
+          </select>
+        </div>
+
         {/* Date Range Filter */}
         <div className="flex items-center gap-2">
           <label className="text-sm text-muted-foreground">Fecha:</label>
@@ -153,8 +179,9 @@ export function FilterBar({ servers, filters, onFilterChange }: FilterBarProps) 
           {[
             filters.doctor && `Doctor: ${filters.doctor}`,
             filters.specialty && `Especialidad: ${filters.specialty}`,
+            filters.status && `Estado: ${filters.status}`,
             (filters.dateFrom || filters.dateTo) &&
-              `Fecha: ${filters.dateFrom || "01/01"} - ${filters.dateTo || "31/12"}`,
+            `Fecha: ${filters.dateFrom || "01/01"} - ${filters.dateTo || "31/12"}`,
           ]
             .filter(Boolean)
             .join(" • ")}

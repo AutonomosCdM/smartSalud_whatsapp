@@ -96,18 +96,21 @@ export class ElevenLabsBatchService {
         }
 
         // Convert patients to ElevenLabs recipient format
+        // Variables must match agent prompt: {{patient_name}}, {{appointment_date}}, {{appointment_time}}, {{professional_name}}
         const recipients: BatchRecipient[] = patients.map(patient => ({
             id: patient.appointmentId,
             phone_number: patient.phoneNumber,
             conversation_initiation_client_data: {
                 dynamic_variables: {
                     patient_name: patient.patientName,
+                    patient_id: patient.patientId,
                     appointment_date: patient.appointmentDate,
+                    appointment_time: '',
+                    professional_name: patient.doctorName,
                     doctor_name: patient.doctorName,
                     specialty: patient.specialty,
+                    appointment_id: patient.appointmentId,
                 },
-                user_id: patient.patientId,
-                source_info: 'smartsalud_batch',
             },
         }));
 

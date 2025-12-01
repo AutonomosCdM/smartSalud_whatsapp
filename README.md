@@ -1,5 +1,20 @@
 # smartSalud V5 - Sistema Autónomo de Gestión de Citas Médicas
 
+![CI](https://github.com/your-org/smartSalud_V5/actions/workflows/ci.yml/badge.svg)
+
+Sistema autónomo que reduce no-shows en hospitales/CFAMs mediante recordatorios escalonados (72h, 48h, 24h), WhatsApp conversacional y voice calls automatizadas.
+
+## GitHub Secrets (para CI/CD)
+
+Para que los workflows funcionen correctamente, agrega los siguientes secretos en la configuración del repositorio (Settings → Secrets → Actions):
+- `DATABASE_URL` – URL de conexión a PostgreSQL (ej. `postgresql://user:pass@host:5432/dbname`).
+- `TWILIO_ACCOUNT_SID` y `TWILIO_AUTH_TOKEN` – credenciales de Twilio.
+- `TWILIO_WHATSAPP_NUMBER` – número de WhatsApp habilitado.
+- `ELEVENLABS_API_KEY` – clave de ElevenLabs.
+- `ELEVENLABS_AGENT_ID` – ID del agente de voz.
+- `OPENAI_API_KEY` – clave de OpenAI/Groq.
+- `RAILWAY_TOKEN` – token de acceso a Railway (para el workflow de despliegue).
+
 Sistema autónomo que reduce no-shows en hospitales/CFAMs mediante recordatorios escalonados (72h, 48h, 24h), WhatsApp conversacional y voice calls automatizadas.
 
 **Version**: 5.0 (Arquitectura simplificada vs v4)
@@ -37,6 +52,12 @@ Hospitales pierden **25% de citas por no-shows** → pérdida de ingresos + inef
 - Métricas clave (no-show rate, confirmación)
 - Alertas para llamadas urgentes
 
+### ✅ Gestión Avanzada de Llamadas (Nuevo)
+- **Historial Completo**: Registro detallado de todas las llamadas de voz.
+- **Dashboard de Métricas**: KPIs en tiempo real (tasa de éxito, duración, tendencias).
+- **Bulk Calling**: Llamadas masivas a pacientes seleccionados con cola de procesamiento.
+- **Simulación**: Modo de pruebas para validar flujos sin costo.
+
 ### ✅ Máquina de Estados
 6 estados: AGENDADO → CONFIRMADO/REAGENDADO/CANCELADO/PENDIENTE_LLAMADA/NO_SHOW
 
@@ -44,8 +65,8 @@ Hospitales pierden **25% de citas por no-shows** → pérdida de ingresos + inef
 
 ## Stack Técnico
 
-**Frontend**: Next.js 15 + TypeScript + Tailwind CSS
-**Backend**: Node.js + Express + TypeScript
+**Frontend**: Next.js 15 + TypeScript + Tailwind CSS + Sonner (Toasts)
+**Backend**: Node.js + Express + TypeScript + BullMQ (Queue logic)
 **Database**: PostgreSQL (Railway managed)
 **ORM**: Prisma
 **Scheduler**: node-cron (in-process)
@@ -254,6 +275,13 @@ Dashboard muestra:
 - `PATCH /appointments/:id` - Update appointment
 - `GET /metrics/dashboard` - Real-time metrics
 
+**Call Management Endpoints**:
+- `GET /calls` - Call history with filters
+- `GET /calls/metrics` - Call performance KPIs
+- `POST /calls/bulk` - Queue bulk calls
+- `GET /calls/queue` - Check queue status
+- `POST /calls/queue/control` - Manage queue (clear, pause)
+
 **See**: `.claude/api-design.md` for complete API reference
 
 ---
@@ -292,19 +320,21 @@ npm run test:coverage # Coverage report
 
 **MVP (Week 1-2)**:
 - [x] Project setup
-- [ ] Dashboard + Excel import
-- [ ] Basic reminders (72h, 48h, 24h)
-- [ ] WhatsApp simple confirmation
+- [x] Dashboard + Excel import
+- [x] Basic reminders (72h, 48h, 24h)
+- [x] WhatsApp simple confirmation
 
 **Phase 2 (Week 3-4)**:
 - [ ] WhatsApp conversational (RUT validation, intent detection)
 - [ ] Reschedule flow
-- [ ] Enhanced dashboard
+- [x] Enhanced dashboard (Call Metrics)
 
 **Phase 3 (Week 5-6)**:
-- [ ] Voice calls (ElevenLabs)
+- [x] Voice calls (ElevenLabs)
+- [x] Bulk Calling & Queue
+- [x] Call History & Details
 - [ ] Escalación humana
-- [ ] Analytics dashboard
+- [ ] Analytics dashboard (Full)
 - [ ] NO_SHOW tracking
 - [ ] Production deployment
 
@@ -360,6 +390,6 @@ Proprietary - Autonomos Lab
 
 ---
 
-*Version: 5.0*
-*Last Updated: 2025-11-17*
+*Version: 5.1 (Call Management Update)*
+*Last Updated: 2025-11-24*
 *Built with ❤️ by Autonomos Lab*

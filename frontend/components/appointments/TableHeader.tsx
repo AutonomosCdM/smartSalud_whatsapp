@@ -85,25 +85,17 @@ export function TableHeader({ sortBy, sortOrder = "asc", onSortChange }: TableHe
         sortBy={sortBy}
         sortOrder={sortOrder}
         onSortChange={onSortChange}
-        colSpan={2}
-      />
-      <SortableHeader
-        label="Especialidad"
-        field="specialty"
-        sortBy={sortBy}
-        sortOrder={sortOrder}
-        onSortChange={onSortChange}
-        colSpan={1}
+        colSpan={3}
       />
       <div className="col-span-2">Doctor</div>
       <div className="col-span-2">Teléfono</div>
       <SortableHeader
-        label="Hora"
+        label="Cita"
         field="date"
         sortBy={sortBy}
         sortOrder={sortOrder}
         onSortChange={onSortChange}
-        colSpan={3}
+        colSpan={2}
       />
       <SortableHeader
         label="Estado"
@@ -113,6 +105,7 @@ export function TableHeader({ sortBy, sortOrder = "asc", onSortChange }: TableHe
         onSortChange={onSortChange}
         colSpan={1}
       />
+      <div className="col-span-1 text-center">Llamar</div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
-# Estado Actual del Proyecto (v5.0.5)
+# Estado Actual del Proyecto (v5.2.1)
 
-**Fecha**: 2025-11-27
-**Estado**: Dashboard MVP + Métricas + ElevenLabs Integration Actualizada
+**Fecha**: 2025-12-01
+**Estado**: WhatsApp State Machine Fix - Production Ready
 
 ---
 
@@ -182,6 +182,42 @@ NEXT_PUBLIC_API_URL="http://localhost:3001"
 
 ---
 
+## 📝 Cambios en v5.2.1
+
+**WhatsApp State Machine Fix** - Resolución de loop de confirmación
+
+1. **ConversationStep Enum** - Renombrado `WAITING_RUT` → `WAITING_SLOT_SELECTION`
+   - WAITING_RUT causaba propósito dual confuso (contexto + estado)
+   - WAITING_SLOT_SELECTION indica claramente espera de selección de slot
+
+2. **Actualización de Referencias**:
+   - `backend/src/routes/webhooks/whatsapp.ts` líneas 186, 314
+   - Migration: `20251201170145_rename_waiting_rut_to_waiting_slot_selection`
+
+3. **Testing Completo**:
+   - Flujo CONFIRMAR (AGENDADO → CONFIRMADO) ✅
+   - Flujo REAGENDAR (AGENDADO → Selección slots → REAGENDADO) ✅
+   - Flujo CANCELAR (AGENDADO → CANCELADO) ✅
+   - No más loops de confirmación ✅
+
+4. **Security Audit** - Adrian aprobó (96/100)
+   - Validaciones de estado correctas
+   - Sin vulnerabilidades críticas
+   - Performance optimizada
+
+5. **Lección Aprendada**:
+   - Sistema filtra slots por especialidad (correcto para operación hospitalaria)
+   - Slots disponibles deben coincidir con especialidad de cita original
+   - Nombres de estados deben reflejar su único propósito
+
+**Archivos Modificados**:
+
+- `backend/prisma/schema.prisma`
+- `backend/src/routes/webhooks/whatsapp.ts`
+- `backend/prisma/migrations/20251201170145_rename_waiting_rut_to_waiting_slot_selection/migration.sql`
+
+---
+
 ## 📝 Cambios en v5.0.5
 
 1. **Webhook ElevenLabs** - Verificación HMAC corregida (`t=timestamp,v0=hash`)
@@ -204,5 +240,5 @@ NEXT_PUBLIC_API_URL="http://localhost:3001"
 
 ---
 
-*Version: 5.0.5*
-*Last Updated: 2025-11-27*
+*Version: 5.2.1*
+*Last Updated: 2025-12-01*

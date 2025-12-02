@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, ReminderType } from '@prisma/client';
 import Redis from 'ioredis';
 import { sendWhatsAppMessage } from '../services/twilioService';
 
@@ -35,7 +35,7 @@ export async function processReminder(data: { appointmentId: string; type: strin
   await prisma.reminderLog.create({
     data: {
       appointmentId,
-      type,
+      type: type as ReminderType,
       sentAt: new Date(),
     },
   });

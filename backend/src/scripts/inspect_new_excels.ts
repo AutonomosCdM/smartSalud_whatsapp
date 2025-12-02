@@ -19,11 +19,8 @@ filesToInspect.forEach(relativePath => {
             const sheetName = workbook.SheetNames[0];
             const sheet = workbook.Sheets[sheetName];
 
-            // Get range
-            const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
-
             // Read first few rows to find headers (sometimes they are not in row 1)
-            const data = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 0, defval: '' }) as any[][];
+            const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
 
             // Print first 5 rows to identify where headers are
             console.log('First 5 rows preview:');
@@ -35,6 +32,6 @@ filesToInspect.forEach(relativePath => {
             console.log('File not found');
         }
     } catch (e) {
-        console.error('Error reading file:', e.message);
+        console.error('Error reading file:', e instanceof Error ? e.message : String(e));
     }
 });

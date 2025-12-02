@@ -118,10 +118,10 @@ async function main() {
                             await prisma.appointment.create({
                                 data: {
                                     patientId: patient.id,
-                                    date: appointmentDate,
-                                    status: 'SCHEDULED',
-                                    type: currentSpecialty || 'GENERAL',
-                                    professional: currentProfessional || 'STAFF'
+                                    appointmentDate: appointmentDate,
+                                    status: 'AGENDADO' as const,
+                                    specialty: currentSpecialty || 'GENERAL',
+                                    doctorName: currentProfessional || 'STAFF'
                                 }
                             });
                             appointmentsCount++;
